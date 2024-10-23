@@ -20,17 +20,17 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Checkout repository
-                uses: actions/checkout@v2
+              uses: actions/checkout@v2
 
             - name: Retrieve Weaviate Version
-                uses: ./.github/actions/weaviate-version-in-image
-                id: weaviate-version
-                with:
-                    image_tag: 'latest'
-                    registry: 'docker.io/semitechnologies/weaviate'
+              uses: weaviate/github-common-actions/.github/actions/weaviate-version-in-image@main
+              id: weaviate-version
+              with:
+                image_tag: 'latest'
+                registry: 'docker.io/semitechnologies/weaviate'
 
             - name: Output Weaviate Version
-                run: echo "Weaviate Version: ${{ steps.weaviate-version.outputs.weaviate_version }}"
+              run: echo "Weaviate Version: ${{ steps.weaviate-version.outputs.weaviate_version }}"
 ```
 
 ### Runs
