@@ -1,0 +1,66 @@
+name: weaviate-version-in-image
+description: 'Retrieves the Weaviate version from a given Weaviate Docker image.'
+inputs:
+  image_tag:
+    description: 'The Weaviate Docker image to retrieve the version from.'
+    required: true
+    default: 'latest'
+  registry:
+    description: 'The Docker registry and namespace to pull the image from.'
+    required: false
+    default: 'docker.io/semitechnologies/weaviate'
+outputs:
+  weaviate_version:
+    description: 'The Weaviate version retrieved from the image.'
+    value: ${{ steps.set-weaviate-version.outputs.weaviate_version }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Set globals
+      id: globals
+      shell: bash
+      run: |
+        echo "action_timeout=300" >> "${GITHUB_OUTPUT}"
+        echo "action_port=8080" >> "${GITHUB_OUTPUT}"
+    - name: Start Weaviate service
+      shell: bash
+      id: start-docker-container
+      run: |
+        CONTAINER_ID=$(docker run -d --rm \
+          --name weaviate_service \
+          -p ${{ steps.globals.outputs.action_port}}:8080 \
+          ${{ inputs.registry }}:${{ inputs.image_tag }} \
+          --host 0.0.0.0 \
+          --port 8080 \
+          --scheme http \
+          --write-timeout 600s)
+        echo "Container ID: $CONTAINER_ID"
+        echo "container_id=$CONTAINER_ID" >> "${GITHUB_OUTPUT}"
+    - name: Wait for .well-known/ready API to be ready
+      shell: bash
+      id: wait-for-ready
+      run: |
+        start_time=$(date +%s)
+        timeout=${{ steps.globals.outputs.action_timeout }}
+        until [ "$(curl -w '%{http_code}' -s -o /dev/null http://localhost:${{ steps.globals.outputs.action_port}}/v1/.well-known/ready)" -eq 200 ]; do
+          current_time=$(date +%s)
+          elapsed_time=$((current_time - start_time))
+          if [ "$elapsed_time" -ge "$timeout" ]; then
+          echo "Timeout of $timeout seconds reached. Exiting..."
+          exit 1
+          fi
+          echo "Waiting for Weaviate service to be ready..."
+          sleep 5
+        done
+    - name: Set the Weaviate version as an output
+      id: set-weaviate-version
+      shell: bash
+      run: |
+        WEAVIATE_VERSION=$(curl http://localhost:${{ steps.globals.outputs.action_port}}/v1/meta | jq -r '.version')
+        echo "Found weaviate version: $WEAVIATE_VERSION"
+        echo "weaviate_version=$WEAVIATE_VERSION" >> "${GITHUB_OUTPUT}"
+    - name: Clean up Docker container
+      if: always()
+      shell: bash
+      run: |
+        docker rm -f ${{ steps.start-docker-container.outputs.container_id }} || true
