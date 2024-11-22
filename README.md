@@ -42,3 +42,44 @@ This action runs using `composite` with the following steps:
 2. **Start Weaviate service**: Starts the Weaviate Docker container.
 3. **Wait for .well-known/ready API to be ready**: Waits until the Weaviate service is ready.
 4. **Set the Weaviate version as an output**: Retrieves and sets the Weaviate version as an output.
+
+
+## get-latest-weaviate-version
+
+### Description
+Retrieves the latest Weaviate version available from GitHub releases.
+
+### Inputs
+None
+
+### Outputs
+- `latest_weaviate_version`: The latest Weaviate version available from GitHub releases.
+
+### Usage
+```yaml
+name: Test Get Latest Weaviate Version Action
+
+on:
+  push:
+
+jobs:
+  version-latest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      
+      - name: Test get-latest-weaviate-version action
+        id: latest-version
+        uses: weaviate/github-common-actions/.github/actions/get-latest-weaviate-version@main
+      
+      - name: Output latest Weaviate version
+        run: echo "Latest Weaviate version: ${{ steps.latest-version.outputs.latest_weaviate_version }}"
+```
+
+
+
+
+
+
+
