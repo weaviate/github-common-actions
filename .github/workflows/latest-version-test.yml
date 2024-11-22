@@ -1,0 +1,68 @@
+name: Test Get Latest Weaviate Version Action
+
+on:
+  push:
+
+jobs:
+  version-format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      
+      - name: Test get-latest-weaviate-version action
+        id: latest-version
+        uses: ./.github/actions/get-latest-weaviate-version
+      
+      - name: Verify version format
+        run: |
+          VERSION=${{ steps.latest-version.outputs.latest_weaviate_version }}
+          if ! [[ $VERSION =~ ^[1-9]\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version format: $VERSION"
+            echo "Expected format: X.Y.Z where X≥1"
+            exit 1
+          fi
+
+  version-comparison:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      
+      - name: Test get-latest-weaviate-version action
+        id: latest-version
+        uses: ./.github/actions/get-latest-weaviate-version
+      
+      - name: Compare with minimum version
+        run: |
+          VERSION=${{ steps.latest-version.outputs.latest_weaviate_version }}
+          MIN_VERSION="1.0.0"
+          if ! [[ "$(printf '%s\n' "$MIN_VERSION" "$VERSION" | sort -V | tail -n1)" = "$VERSION" ]]; then
+            echo "Retrieved version ($VERSION) is lower than minimum expected version ($MIN_VERSION)"
+            exit 1
+          fi
+
+  version-stability:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      
+      - name: First version check
+        id: version-1
+        uses: ./.github/actions/get-latest-weaviate-version
+      
+      - name: Second version check
+        id: version-2
+        uses: ./.github/actions/get-latest-weaviate-version
+      
+      - name: Verify version stability
+        run: |
+          VERSION1=${{ steps.version-1.outputs.latest_weaviate_version }}
+          VERSION2=${{ steps.version-2.outputs.latest_weaviate_version }}
+          if [ "$VERSION1" != "$VERSION2" ]; then
+            echo "Version mismatch between consecutive checks:"
+            echo "First check: $VERSION1"
+            echo "Second check: $VERSION2"
+            exit 1
+          fi 
