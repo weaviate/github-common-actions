@@ -1,0 +1,15 @@
+name: get-latest-weaviate-version
+description: 'Retrieves the latest Weaviate version from GitHub releases'
+outputs:
+  latest_weaviate_version:
+    description: 'The latest Weaviate version'
+    value: ${{ steps.get-version.outputs.weaviate_version }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Get latest Weaviate version
+      id: get-version
+      shell: bash
+      run: |
+        LATEST_RELEASE=$(git -c 'versionsort.suffix=-' ls-remote --tags --sort='v:refname' https://github.com/semi-technologies/weaviate.git | cut -d/ -f3 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+$' | cut -c 2- | tail -1)
+        echo "weaviate_version=${LATEST_RELEASE}" >> "${GITHUB_OUTPUT}"
