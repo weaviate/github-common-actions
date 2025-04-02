@@ -78,8 +78,62 @@ jobs:
 ```
 
 
+## get-previous-version
 
+### Description
+Retrieves a previous version of Weaviate based on specified criteria, allowing for patch or minor version jumps.
 
+### Inputs
+- `weaviate_version` (required): The current Weaviate version to start from
+- `jump_type` (required): Type of version jump to perform
+  - `patch`: Get the previous patch version within the same minor version
+  - `minor`: Get a version from a previous minor version
+- `jumps` (optional): Number of minor versions to jump back when `jump_type` is 'minor'. Default: '1'
 
+### Outputs
+- `previous_version`: The previous Weaviate version based on the specified criteria
 
+### Usage
+```yaml
+name: Get Previous Weaviate Version
+on: [push]
+
+jobs:
+  get-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Get Previous Patch Version
+        uses: weaviate/github-common-actions/.github/actions/get-previous-version@main
+        id: get-version
+        with:
+          weaviate_version: '1.24.21'
+          jump_type: 'patch'
+
+      - name: Get Previous Minor Version
+        uses: weaviate/github-common-actions/.github/actions/get-previous-version@main
+        id: get-minor-version
+        with:
+          weaviate_version: '1.25.21'
+          jump_type: 'minor'
+          jumps: '1'
+
+      - name: Output Versions
+        run: |
+          echo "Previous patch version: ${{ steps.get-version.outputs.previous_version }}"
+          echo "Previous minor version: ${{ steps.get-minor-version.outputs.previous_version }}"
+```
+
+### Examples
+- For version `1.24.21` with `jump_type: 'patch'` → returns `1.24.20`
+- For version `1.25.21` with `jump_type: 'minor'` and `jumps: '1'` → returns latest `1.24.x` version
+- For version `1.26.17` with `jump_type: 'minor'` and `jumps: '2'` → returns latest `1.24.x` version
+
+### Runs
+This action runs using `composite` with the following steps:
+1. **Set up Python**: Sets up Python 3.11 environment
+2. **Install Dependencies**: Installs required Python packages (requests, semver)
+3. **Get Previous Version**: Fetches available versions from GitHub releases and returns the appropriate previous version based on the specified criteria
 
