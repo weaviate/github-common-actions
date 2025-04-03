@@ -1,0 +1,89 @@
+name: Test Get Previous Version Action
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+        LATEST_124_VERSION: '1.24.26' # Update this when the latest 1.24.x version is released
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Test patch version jump
+        uses: ./.github/actions/get-previous-version
+        id: test-patch
+        with:
+          weaviate_version: '1.24.21'
+          jump_type: 'patch'
+
+      - name: Verify patch output
+        run: |
+          if [ "${{ steps.test-patch.outputs.previous_version }}" != "1.24.20" ]; then
+            echo "Expected version 1.24.20, got ${{ steps.test-patch.outputs.previous_version }}"
+            exit 1
+          fi
+
+      - name: Test multiple patch version jumps
+        uses: ./.github/actions/get-previous-version
+        id: test-patch-multiple
+        with:
+          weaviate_version: '1.24.21'
+          jump_type: 'patch'
+          jumps: '3'
+
+      - name: Verify patch output
+        run: |
+          if [ "${{ steps.test-patch-multiple.outputs.previous_version }}" != "1.24.18" ]; then
+            echo "Expected version 1.24.18, got ${{ steps.test-patch-multiple.outputs.previous_version }}"
+            exit 1
+          fi
+
+      - name: Test minor version jump
+        uses: ./.github/actions/get-previous-version
+        id: test-minor
+        with:
+          weaviate_version: '1.25.21'
+          jump_type: 'minor'
+          jumps: '1'
+
+      - name: Verify minor output
+        run: |
+          if [ "${{ steps.test-minor.outputs.previous_version }}" != "$LATEST_124_VERSION" ]; then
+            echo "Expected version $LATEST_124_VERSION, got ${{ steps.test-minor.outputs.previous_version }}"
+            exit 1
+          fi
+
+      - name: Test multiple minor jumps
+        uses: ./.github/actions/get-previous-version
+        id: test-multiple
+        with:
+          weaviate_version: '1.26.17'
+          jump_type: 'minor'
+          jumps: '2'
+
+      - name: Verify multiple jumps output
+        run: |
+          if [ "${{ steps.test-multiple.outputs.previous_version }}" != "$LATEST_124_VERSION" ]; then
+            echo "Expected version $LATEST_124_VERSION, got ${{ steps.test-multiple.outputs.previous_version }}"
+            exit 1
+          fi
+
+      - name: Test with invalid version
+        uses: ./.github/actions/get-previous-version
+        id: test-invalid
+        continue-on-error: true
+        with:
+          weaviate_version: '0.0.0'
+          jump_type: 'patch'
+
+      - name: Verify invalid version fails
+        run: |
+          if [ "${{ steps.test-invalid.outcome }}" != "failure" ]; then
+            echo "Expected action to fail with invalid version"
+            exit 1
+          fi 

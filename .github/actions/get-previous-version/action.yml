@@ -1,0 +1,89 @@
+name: Get Previous Weaviate Version
+description: "Gets a previous version of Weaviate based on specified criteria"
+
+inputs:
+  weaviate_version:
+    required: true
+    description: "Current Weaviate version"
+  jump_type:
+    required: true
+    description: "Type of version jump (patch/minor)"
+    default: 'patch'
+  jumps:
+    required: false
+    description: "Number of versions to jump back"
+    default: '1'
+
+outputs:
+  previous_version:
+    description: "Previous Weaviate version"
+    value: ${{ steps.get-prev-version.outputs.version }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install Dependencies
+      shell: bash
+      run: pip install requests semver
+
+    - name: Get Previous Version
+      id: get-prev-version
+      shell: python
+      run: |
+        import requests
+        import semver
+        import os
+
+        def get_versions():
+            response = requests.get('https://api.github.com/repos/weaviate/weaviate/releases?per_page=100')
+            releases = response.json()
+            versions = []
+
+            for release in releases:
+                tag = release['tag_name']
+                try:
+                    if tag.startswith('v'):
+                        ver = semver.VersionInfo.parse(tag[1:])
+                        if ver.prerelease is None:
+                            versions.append(ver)
+                except ValueError:
+                    continue
+
+            return sorted(versions, reverse=True)
+
+        def get_previous_version(current_version, jump_type='patch', jumps=1):
+            versions = get_versions()
+
+            if jump_type == 'patch':
+                # Get all versions with same major and minor, sorted in descending order
+                prev_versions = [v for v in versions if v < current_version and
+                               v.major == current_version.major and
+                               v.minor == current_version.minor]
+                # Return the version that's 'jumps' steps back from the current version
+                if len(prev_versions) >= jumps:
+                    return prev_versions[jumps - 1]
+            else:  # jump_type == 'minor'
+                target_minor = current_version.minor - jumps
+                prev_versions = [v for v in versions if
+                               v.major == current_version.major and
+                               v.minor == target_minor]
+                if prev_versions:
+                    return prev_versions[0]
+            return None
+
+        current = semver.VersionInfo.parse('${{ inputs.weaviate_version }}'.lstrip('v'))
+        prev_version = get_previous_version(current, '${{ inputs.jump_type }}', int('${{ inputs.jumps }}'))
+
+        if prev_version:
+            result = f"{prev_version}"
+            print(f"Previous version: {result}")
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                f.write(f"version={result}\n")
+        else:
+            print("No matching version found")
+            exit(1)
