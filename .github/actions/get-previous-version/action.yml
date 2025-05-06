@@ -40,7 +40,13 @@ runs:
         import os
 
         def get_versions():
-            response = requests.get('https://api.github.com/repos/weaviate/weaviate/releases?per_page=100')
+            for attempts in range(5):
+                response = requests.get('https://api.github.com/repos/weaviate/weaviate/releases?per_page=100')
+                if response.status_code == 200:
+                    break
+                time.sleep(2**attempts)
+            if response.status_code != 200:
+                raise Exception(f"Failed to fetch releases: {response.status_code} Body: {response.json()}")
             releases = response.json()
             versions = []
 
