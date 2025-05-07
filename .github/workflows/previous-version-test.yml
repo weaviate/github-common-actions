@@ -18,13 +18,13 @@ jobs:
         uses: ./.github/actions/get-previous-version
         id: test-patch
         with:
-          weaviate_version: '1.24.21'
+          weaviate_version: '1.24.25'
           jump_type: 'patch'
 
       - name: Verify patch output
         run: |
-          if [ "${{ steps.test-patch.outputs.previous_version }}" != "1.24.20" ]; then
-            echo "Expected version 1.24.20, got ${{ steps.test-patch.outputs.previous_version }}"
+          if [ "${{ steps.test-patch.outputs.previous_version }}" != "1.24.24" ]; then
+            echo "Expected version 1.24.24, got ${{ steps.test-patch.outputs.previous_version }}"
             exit 1
           fi
 
@@ -32,14 +32,14 @@ jobs:
         uses: ./.github/actions/get-previous-version
         id: test-patch-multiple
         with:
-          weaviate_version: '1.24.21'
+          weaviate_version: '1.24.25'
           jump_type: 'patch'
           jumps: '3'
 
       - name: Verify patch output
         run: |
-          if [ "${{ steps.test-patch-multiple.outputs.previous_version }}" != "1.24.18" ]; then
-            echo "Expected version 1.24.18, got ${{ steps.test-patch-multiple.outputs.previous_version }}"
+          if [ "${{ steps.test-patch-multiple.outputs.previous_version }}" != "1.24.22" ]; then
+            echo "Expected version 1.24.22, got ${{ steps.test-patch-multiple.outputs.previous_version }}"
             exit 1
           fi
 
