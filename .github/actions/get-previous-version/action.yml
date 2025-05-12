@@ -37,6 +37,7 @@ runs:
       run: |
         import requests
         import semver
+        import time
         import os
 
         def get_versions():
