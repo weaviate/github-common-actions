@@ -1,0 +1,155 @@
+name: Test Capture Logs Action
+permissions:
+  contents: read
+  actions: read
+  packages: read
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - '.github/actions/capture-logs/**'
+
+env:
+  # Kubernetes cluster configuration
+  WORKERS: 1
+  REPLICAS: 1
+  WEAVIATE_VERSION: nightly
+
+jobs:
+  test-kubernetes-logs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Start up Weaviate cluster
+        uses: weaviate/weaviate-local-k8s@v2
+        id: deploy_cluster
+        with:
+          workers: ${{ env.WORKERS }}
+          replicas: ${{ env.REPLICAS }}
+          weaviate-version: ${{ env.WEAVIATE_VERSION }}
+
+      - name: Wait for Weaviate to be ready
+        run: |
+          kubectl wait --for=condition=ready pod -l app=weaviate --timeout=300s -n weaviate
+
+      - name: Test Kubernetes mode with defaults
+        uses: ./.github/actions/capture-logs
+        with:
+          stern_version: '1.30.0'
+          action: 'start'
+          log_file_name: 'test_stern_k8s.log'
+          type: 'kubernetes'
+
+      - name: Verify Kubernetes stern installation
+        run: |
+          stern --version | grep '1.30.0'
+          pgrep -f "stern --namespace weaviate --selector app=weaviate" > /dev/null
+          test -f /tmp/test_stern_k8s.log
+
+      - name: Test stern stop
+        uses: ./.github/actions/capture-logs
+        with:
+          action: 'stop'
+          type: 'kubernetes'
+
+      - name: Verify stern process is stopped
+        run: |
+          ! pgrep -f "stern --namespace weaviate --selector app=weaviate" > /dev/null
+
+      - name: Test custom Kubernetes configuration
+        uses: ./.github/actions/capture-logs
+        with:
+          stern_version: '1.29.0'
+          action: 'start'
+          log_file_name: 'test_stern_k8s_custom.log'
+          namespace: 'weaviate'
+          selector: 'app=weaviate'
+          type: 'kubernetes'
+
+      - name: Verify custom Kubernetes configuration
+        run: |
+          stern --version | grep '1.29.0'
+          pgrep -f "stern --namespace weaviate --selector app=weaviate" > /dev/null
+          test -f /tmp/test_stern_k8s_custom.log
+
+      - name: Archive Kubernetes logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: kubernetes-logs
+          path: |
+            /tmp/test_stern_k8s.log
+            /tmp/test_stern_k8s_custom.log
+          if-no-files-found: error
+
+      - name: Final cleanup
+        uses: ./.github/actions/capture-logs
+        with:
+          action: 'stop'
+          type: 'kubernetes'
+        if: always()
+
+  test-docker-logs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create test docker-compose file
+        run: |
+          cat > test-docker-compose.yml << EOF
+          version: '3'
+          services:
+            weaviate:
+              image: semitechnologies/weaviate:nightly
+              ports:
+                - "8080:8080"
+              environment:
+                QUERY_DEFAULTS_LIMIT: 25
+                AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+                PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+          EOF
+
+      - name: Start test Docker services
+        run: |
+          docker compose -f test-docker-compose.yml up -d
+          # Wait for services to be ready
+          timeout 60 bash -c 'until curl -s http://localhost:8080/v1/.well-known/ready; do sleep 1; done'
+
+      - name: Test Docker mode
+        uses: ./.github/actions/capture-logs
+        with:
+          action: 'start'
+          log_file_name: 'test_docker.log'
+          type: 'docker'
+          docker_compose_file: 'test-docker-compose.yml'
+
+      - name: Verify Docker logs
+        run: |
+          test -f /tmp/test_docker.log
+          pgrep -f "docker compose.*logs -f" > /dev/null
+
+      - name: Test Docker logs stop
+        uses: ./.github/actions/capture-logs
+        with:
+          action: 'stop'
+          type: 'docker'
+
+      - name: Verify Docker logs stopped
+        run: |
+          ! pgrep -f "docker compose.*logs -f" > /dev/null
+
+      - name: Archive Docker logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-logs
+          path: /tmp/test_docker.log
+          if-no-files-found: error
+
+      - name: Cleanup Docker services
+        run: |
+          docker compose -f test-docker-compose.yml down
+        if: always() 
