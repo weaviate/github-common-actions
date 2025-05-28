@@ -1,0 +1,81 @@
+name: 'Capture Kubernetes Logs with Stern'
+description: 'Install and manage stern for capturing Kubernetes logs or Docker container logs'
+
+inputs:
+  stern_version:
+    description: 'Stern version to install (only used when type=kubernetes)'
+    required: false
+    default: '1.30.0'
+  action:
+    description: 'Action to perform (start or stop)'
+    required: false
+    default: 'start'
+  log_file_name:
+    description: 'Name of the log file to capture'
+    required: false
+    default: 'weaviate_pods.log'
+  namespace:
+    description: 'Kubernetes namespace to capture logs from (only used when type=kubernetes)'
+    required: false
+    default: 'weaviate'
+  selector:
+    description: 'Kubernetes label selector for pods (only used when type=kubernetes)'
+    required: false
+    default: 'app=weaviate'
+  type:
+    description: 'Type of logging to perform (kubernetes or docker)'
+    required: false
+    default: 'kubernetes'
+  docker_compose_file:
+    description: 'Path to docker-compose.yml file (only used when type=docker)'
+    required: false
+    default: 'docker-compose.yml'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install stern for Kubernetes mode
+      if: inputs.action == 'start' && inputs.type == 'kubernetes'
+      shell: bash
+      env:
+        STERN_VERSION: ${{ inputs.stern_version }}
+      run: |
+        curl -L -o /tmp/stern.tar.gz https://github.com/stern/stern/releases/download/v${STERN_VERSION}/stern_${STERN_VERSION}_linux_amd64.tar.gz
+        tar -xzf /tmp/stern.tar.gz -C /tmp
+        sudo mv /tmp/stern /usr/local/bin/stern
+        which stern
+
+    - name: Start stern logs for Kubernetes
+      if: inputs.action == 'start' && inputs.type == 'kubernetes'
+      shell: bash
+      run: |
+        stern --namespace ${{ inputs.namespace }} --selector ${{ inputs.selector }} > /tmp/${{ inputs.log_file_name }} &
+
+    - name: Start Docker logs
+      if: inputs.action == 'start' && inputs.type == 'docker'
+      shell: bash
+      run: |
+        # Verify docker-compose file exists
+        if [ ! -f "${{ inputs.docker_compose_file }}" ]; then
+          echo "Error: Docker compose file not found at ${{ inputs.docker_compose_file }}"
+          exit 1
+        fi
+        
+        # Start docker compose logs in background
+        docker compose -f ${{ inputs.docker_compose_file }} logs -f > /tmp/${{ inputs.log_file_name }} &
+        echo $! > /tmp/docker_logs_pid
+
+    - name: Stop Kubernetes logs
+      if: inputs.action == 'stop' && inputs.type == 'kubernetes'
+      shell: bash
+      run: |
+        pkill stern
+
+    - name: Stop Docker logs
+      if: inputs.action == 'stop' && inputs.type == 'docker'
+      shell: bash
+      run: |
+        if [ -f /tmp/docker_logs_pid ]; then
+          kill $(cat /tmp/docker_logs_pid) 2>/dev/null || true
+          rm /tmp/docker_logs_pid
+        fi 

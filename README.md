@@ -137,3 +137,106 @@ This action runs using `composite` with the following steps:
 2. **Install Dependencies**: Installs required Python packages (requests, semver)
 3. **Get Previous Version**: Fetches available versions from GitHub releases and returns the appropriate previous version based on the specified criteria
 
+## capture-logs
+
+### Description
+Captures and manages logs from either Kubernetes pods or Docker containers. For Kubernetes, it uses stern to capture logs from pods matching specific labels. For Docker, it uses docker compose logs to capture logs from all services defined in a docker-compose file.
+
+### Inputs
+- `stern_version` (optional): The version of stern to install when using Kubernetes mode. Default: '1.30.0'
+- `action` (optional): The action to perform. Options: 'start' or 'stop'. Default: 'start'
+- `log_file_name` (optional): Name of the file where logs will be captured. Default: 'weaviate_pods.log'
+- `namespace` (optional): Kubernetes namespace to capture logs from (only used when type=kubernetes). Default: 'weaviate'
+- `selector` (optional): Kubernetes label selector for pods (only used when type=kubernetes). Default: 'app=weaviate'
+- `type` (optional): Type of logging to perform. Options: 'kubernetes' or 'docker'. Default: 'kubernetes'
+- `docker_compose_file` (optional): Path to docker-compose.yml file (only used when type=docker). Default: 'docker-compose.yml'
+
+### Usage
+
+#### Kubernetes Mode
+```yaml
+name: Capture Kubernetes Logs
+on: [push]
+
+jobs:
+  capture-logs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Start capturing logs
+      - name: Start capturing Kubernetes logs
+        uses: weaviate/github-common-actions/.github/actions/capture-logs@main
+        with:
+          stern_version: '1.30.0'
+          action: 'start'
+          log_file_name: 'weaviate.log'
+          namespace: 'weaviate'
+          selector: 'app=weaviate'
+          type: 'kubernetes'
+
+      # Your test steps here...
+
+      # Stop capturing logs
+      - name: Stop capturing logs
+        uses: weaviate/github-common-actions/.github/actions/capture-logs@main
+        with:
+          action: 'stop'
+          type: 'kubernetes'
+        if: always()
+```
+
+#### Docker Mode
+```yaml
+name: Capture Docker Logs
+on: [push]
+
+jobs:
+  capture-logs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Start capturing logs
+      - name: Start capturing Docker logs
+        uses: weaviate/github-common-actions/.github/actions/capture-logs@main
+        with:
+          action: 'start'
+          log_file_name: 'docker.log'
+          type: 'docker'
+          docker_compose_file: 'docker-compose.yml'
+
+      # Your test steps here...
+
+      # Stop capturing logs
+      - name: Stop capturing logs
+        uses: weaviate/github-common-actions/.github/actions/capture-logs@main
+        with:
+          action: 'stop'
+          type: 'docker'
+        if: always()
+```
+
+### Behavior
+- For Kubernetes mode:
+  1. Installs stern
+  2. Starts capturing logs from pods matching the namespace and selector
+  3. Writes logs to the specified log file
+  4. Can be stopped using the stop action
+
+- For Docker mode:
+  1. Verifies the docker-compose file exists
+  2. Starts capturing logs from all services in the docker-compose file
+  3. Writes logs to the specified log file
+  4. Can be stopped using the stop action
+
+### Notes
+- The action runs in the background and continues capturing logs until explicitly stopped
+- Logs are written to `/tmp/{log_file_name}`
+- For Kubernetes mode, stern is used to capture logs from multiple pods simultaneously
+- For Docker mode, docker compose logs is used to capture logs from all services
+- Always use the stop action in a cleanup step (with `if: always()`) to ensure logs are properly stopped
+- The docker-compose file must be accessible in the workspace when using Docker mode
+

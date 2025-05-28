@@ -1,7 +1,11 @@
 name: Test Weaviate Version in Image Action
 
 on:
-    push:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - '.github/actions/weaviate-version-in-image/**'
 
 jobs:
     basic-image:
