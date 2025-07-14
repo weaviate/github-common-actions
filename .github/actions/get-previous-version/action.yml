@@ -41,8 +41,9 @@ runs:
         import os
 
         def get_versions():
+            auth_header={"Authorization": f"Bearer ${{ secrets.GITHUB_TOKEN }}"}
             for attempts in range(5):
-                response = requests.get('https://api.github.com/repos/weaviate/weaviate/releases?per_page=100')
+                response = requests.get('https://api.github.com/repos/weaviate/weaviate/releases?per_page=100',headers=auth_header)
                 if response.status_code == 200:
                     break
                 time.sleep(2**attempts)
