@@ -5,6 +5,9 @@ inputs:
   weaviate_version:
     required: true
     description: "Current Weaviate version"
+  gh_token:
+    required: true
+    description: "should be ${{ secrets.GITHUB_TOKEN }}, but the parent job has to pass it"
   jump_type:
     required: true
     description: "Type of version jump (patch/minor)"
@@ -34,8 +37,6 @@ runs:
     - name: Get Previous Version
       id: get-prev-version
       shell: python
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         import requests
         import semver
@@ -43,7 +44,7 @@ runs:
         import os
 
         def get_versions():
-            auth_header={"Authorization": f"Bearer {os.getenv('GH_TOKEN')}"}
+            auth_header={"Authorization": f"Bearer ${{ inputs.gh_token }}"}
             for attempts in range(5):
                 response = requests.get('https://api.github.com/repos/weaviate/weaviate/releases?per_page=100',headers=auth_header)
                 if response.status_code == 200:
