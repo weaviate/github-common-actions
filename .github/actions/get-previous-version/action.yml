@@ -7,7 +7,7 @@ inputs:
     description: "Current Weaviate version"
   gh_token:
     required: true
-    description: "should be ${{ secrets.GITHUB_TOKEN }}, but the parent job has to pass it"
+    description: "should be secrets.GITHUB_TOKEN , but the parent job has to pass it"
   jump_type:
     required: true
     description: "Type of version jump (patch/minor)"
