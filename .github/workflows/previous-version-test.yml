@@ -21,6 +21,7 @@ jobs:
         with:
           weaviate_version: '1.25.25'
           jump_type: 'patch'
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify patch output
         run: |
@@ -36,6 +37,7 @@ jobs:
           weaviate_version: '1.25.25'
           jump_type: 'patch'
           jumps: '3'
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify patch output
         run: |
@@ -51,6 +53,7 @@ jobs:
           weaviate_version: '1.26.13'
           jump_type: 'minor'
           jumps: '1'
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify minor output
         run: |
@@ -66,6 +69,7 @@ jobs:
           weaviate_version: '1.27.10'
           jump_type: 'minor'
           jumps: '2'
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify multiple jumps output
         run: |
@@ -81,6 +85,7 @@ jobs:
         with:
           weaviate_version: '0.0.0'
           jump_type: 'patch'
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify invalid version fails
         run: |
