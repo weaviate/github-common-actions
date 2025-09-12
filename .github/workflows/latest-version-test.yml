@@ -7,6 +7,9 @@ on:
     paths:
       - '.github/actions/get-latest-weaviate-version/**'
 
+permissions:
+  contents: read
+
 jobs:
   version-format:
     runs-on: ubuntu-latest
@@ -21,9 +24,9 @@ jobs:
       - name: Verify version format
         run: |
           VERSION=${{ steps.latest-version.outputs.latest_weaviate_version }}
-          if ! [[ $VERSION =~ ^[1-9]\.[0-9]+\.[0-9]+$ ]]; then
+          if ! [[ $VERSION =~ ^[1-9]\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
             echo "Invalid version format: $VERSION"
-            echo "Expected format: X.Y.Z where X≥1"
+            echo "Expected format: X.Y.Z or X.Y.Z-rc.N where X≥1"
             exit 1
           fi
 
@@ -70,3 +73,54 @@ jobs:
             echo "Second check: $VERSION2"
             exit 1
           fi 
+
+  rc-precedence:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Get action result
+        id: latest-version
+        uses: ./.github/actions/get-latest-weaviate-version
+
+      - name: Compute expected latest (with RC precedence)
+        id: expected
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED=$(git -c 'versionsort.suffix=-' ls-remote --tags --refs --sort='v:refname' https://github.com/semi-technologies/weaviate.git \
+            | cut -d/ -f3 \
+            | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$' \
+            | cut -c 2- \
+            | tail -1)
+          echo "expected=$EXPECTED" >> "$GITHUB_OUTPUT"
+
+          # If EXPECTED is an RC, verify it outranks previous-minor GA
+          if [[ "$EXPECTED" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)-rc\.([0-9]+)$ ]]; then
+            MAJOR="${BASH_REMATCH[1]}"; MINOR="${BASH_REMATCH[2]}"
+            if [ "$MINOR" -gt 0 ]; then
+              PREV_MINOR=$((MINOR-1))
+              PREV_GA=$(git -c 'versionsort.suffix=-' ls-remote --tags --refs --sort='v:refname' https://github.com/semi-technologies/weaviate.git \
+                | cut -d/ -f3 \
+                | grep -oE "v${MAJOR}\\.${PREV_MINOR}\\.[0-9]+$" \
+                | cut -c 2- \
+                | tail -1 || true)
+              if [ -n "$PREV_GA" ]; then
+                TOP=$(printf '%s\n' "$PREV_GA" "$EXPECTED" | sort -V | tail -1)
+                if [ "$TOP" != "$EXPECTED" ]; then
+                  echo "RC precedence failed: expected $EXPECTED to outrank previous-minor GA $PREV_GA"
+                  exit 1
+                fi
+              fi
+            fi
+          fi
+
+      - name: Verify action matches expected
+        run: |
+          VERSION=${{ steps.latest-version.outputs.latest_weaviate_version }}
+          EXPECTED=${{ steps.expected.outputs.expected }}
+          if [ "$VERSION" != "$EXPECTED" ]; then
+            echo "Action result $VERSION does not match expected $EXPECTED"
+            exit 1
+          fi

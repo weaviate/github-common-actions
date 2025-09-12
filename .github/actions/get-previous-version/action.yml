@@ -60,8 +60,7 @@ runs:
                 try:
                     if tag.startswith('v'):
                         ver = semver.VersionInfo.parse(tag[1:])
-                        if ver.prerelease is None:
-                            versions.append(ver)
+                        versions.append(ver)
                 except ValueError:
                     continue
 
@@ -71,20 +70,33 @@ runs:
             versions = get_versions()
 
             if jump_type == 'patch':
-                # Get all versions with same major and minor, sorted in descending order
-                prev_versions = [v for v in versions if v < current_version and
-                               v.major == current_version.major and
-                               v.minor == current_version.minor]
-                # Return the version that's 'jumps' steps back from the current version
+                # Consider both GA and RCs within the same minor, ordered desc
+                prev_versions = [
+                    v for v in versions
+                    if v < current_version and
+                    v.major == current_version.major and
+                    v.minor == current_version.minor
+                ]
                 if len(prev_versions) >= jumps:
                     return prev_versions[jumps - 1]
             else:  # jump_type == 'minor'
                 target_minor = current_version.minor - jumps
-                prev_versions = [v for v in versions if
-                               v.major == current_version.major and
-                               v.minor == target_minor]
-                if prev_versions:
-                    return prev_versions[0]
+                # Filter to target minor across all releases (GA and pre-releases)
+                minor_versions = [
+                    v for v in versions
+                    if v.major == current_version.major and v.minor == target_minor
+                ]
+                # Prefer GA if available
+                ga_versions = [v for v in minor_versions if v.prerelease is None]
+                if ga_versions:
+                    return ga_versions[0]
+                # Fallback to the latest RC if no GA exists
+                rc_versions = [
+                    v for v in minor_versions
+                    if v.prerelease is not None and 'rc' in str(v.prerelease)
+                ]
+                if rc_versions:
+                    return rc_versions[0]
             return None
 
         current = semver.VersionInfo.parse('${{ inputs.weaviate_version }}'.lstrip('v'))
