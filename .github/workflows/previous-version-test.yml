@@ -46,6 +46,36 @@ jobs:
             exit 1
           fi
 
+      - name: Test patch version jump with RC
+        uses: ./.github/actions/get-previous-version
+        id: test-patch-rc
+        with:
+          weaviate_version: '1.33.0-rc.1'
+          jump_type: 'patch'
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify patch output
+        run: |
+          if [ "${{ steps.test-patch-rc.outputs.previous_version }}" != "1.33.0-rc.0" ]; then
+            echo "Expected version 1.33.0-rc.0, got ${{ steps.test-patch-rc.outputs.previous_version }}"
+            exit 1
+          fi
+
+      - name: Test patch version jump from GA returns latest RC in same minor
+        uses: ./.github/actions/get-previous-version
+        id: test-patch-ga-to-rc
+        with:
+          weaviate_version: '1.33.0'
+          jump_type: 'patch'
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify GA->RC patch output
+        run: |
+          if [ "${{ steps.test-patch-ga-to-rc.outputs.previous_version }}" != "1.33.0-rc.1" ]; then
+            echo "Expected version 1.33.0-rc.1, got ${{ steps.test-patch-ga-to-rc.outputs.previous_version }}"
+            exit 1
+          fi
+
       - name: Test minor version jump
         uses: ./.github/actions/get-previous-version
         id: test-minor
@@ -92,4 +122,4 @@ jobs:
           if [ "${{ steps.test-invalid.outcome }}" != "failure" ]; then
             echo "Expected action to fail with invalid version"
             exit 1
-          fi 
+          fi
