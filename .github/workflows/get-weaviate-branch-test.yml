@@ -1,0 +1,360 @@
+name: Test Get Weaviate Branch Action
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - '.github/actions/get-weaviate-branch/**'
+      - '.github/workflows/get-weaviate-branch-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  semver-hash-arch:
+    name: "Tag: semver + hash + arch (1.36.6-76e62e8.amd64)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Resolve tag
+        id: resolve
+        uses: ./.github/actions/get-weaviate-branch
+        with:
+          docker_tag: "1.36.6-76e62e8.amd64"
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify outputs
+        run: |
+          COMMIT="${{ steps.resolve.outputs.commit }}"
+          # Should be a full 40-char hash resolved from short hash 76e62e8
+          if ! [[ "${COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Expected 40-char commit hash, got=${COMMIT}"
+            exit 1
+          fi
+          # Must contain the original short hash
+          if [[ "${COMMIT}" != *"76e62e8"* ]]; then
+            echo "Expected commit to contain 76e62e8, got=${COMMIT}"
+            exit 1
+          fi
+          # Ref should equal commit
+          if [ "${{ steps.resolve.outputs.ref }}" != "${COMMIT}" ]; then
+            echo "Expected ref to equal commit"
+            exit 1
+          fi
+          # Branch should be empty for semver+hash tags
+          if [ -n "${{ steps.resolve.outputs.branch }}" ]; then
+            echo "Expected empty branch, got=${{ steps.resolve.outputs.branch }}"
+            exit 1
+          fi
+
+  semver-hash-no-arch:
+    name: "Tag: semver + hash no arch (1.36.6-76e62e8)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Resolve tag
+        id: resolve
+        uses: ./.github/actions/get-weaviate-branch
+        with:
+          docker_tag: "1.36.6-76e62e8"
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify outputs
+        run: |
+          COMMIT="${{ steps.resolve.outputs.commit }}"
+          if ! [[ "${COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Expected 40-char commit hash, got=${COMMIT}"
+            exit 1
+          fi
+          if [[ "${COMMIT}" != *"76e62e8"* ]]; then
+            echo "Expected commit to contain 76e62e8, got=${COMMIT}"
+            exit 1
+          fi
+
+  semver-dev-hash:
+    name: "Tag: semver-dev + hash (1.37.0-dev-01c9f49)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Resolve tag
+        id: resolve
+        uses: ./.github/actions/get-weaviate-branch
+        with:
+          docker_tag: "1.37.0-dev-01c9f49"
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify outputs
+        run: |
+          COMMIT="${{ steps.resolve.outputs.commit }}"
+          if ! [[ "${COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Expected 40-char commit hash, got=${COMMIT}"
+            exit 1
+          fi
+          if [[ "${COMMIT}" != *"01c9f49"* ]]; then
+            echo "Expected commit to contain 01c9f49, got=${COMMIT}"
+            exit 1
+          fi
+
+  preview-tag:
+    name: "Tag: preview + hash + arch"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Resolve tag
+        id: resolve
+        uses: ./.github/actions/get-weaviate-branch
+        with:
+          docker_tag: "preview-do-not-merge-test-only-perf-compaction-replace-76e62e8.amd64"
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify outputs
+        run: |
+          COMMIT="${{ steps.resolve.outputs.commit }}"
+          if ! [[ "${COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Expected 40-char commit hash, got=${COMMIT}"
+            exit 1
+          fi
+          if [[ "${COMMIT}" != *"76e62e8"* ]]; then
+            echo "Expected commit to contain 76e62e8, got=${COMMIT}"
+            exit 1
+          fi
+          # Branch should be empty for preview tags
+          if [ -n "${{ steps.resolve.outputs.branch }}" ]; then
+            echo "Expected empty branch, got=${{ steps.resolve.outputs.branch }}"
+            exit 1
+          fi
+
+  branch-main-tag:
+    name: "Tag: main branch + hash (main-01c9f49)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Resolve tag
+        id: resolve
+        uses: ./.github/actions/get-weaviate-branch
+        with:
+          docker_tag: "main-01c9f49"
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify outputs
+        run: |
+          COMMIT="${{ steps.resolve.outputs.commit }}"
+          if ! [[ "${COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Expected 40-char commit hash, got=${COMMIT}"
+            exit 1
+          fi
+          if [[ "${COMMIT}" != *"01c9f49"* ]]; then
+            echo "Expected commit to contain 01c9f49, got=${COMMIT}"
+            exit 1
+          fi
+          if [ "${{ steps.resolve.outputs.branch }}" != "main" ]; then
+            echo "Expected branch=main, got=${{ steps.resolve.outputs.branch }}"
+            exit 1
+          fi
+
+  stable-branch-tag:
+    name: "Tag: stable branch + hash (stable-v1.34-92f8f63)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Resolve tag
+        id: resolve
+        uses: ./.github/actions/get-weaviate-branch
+        with:
+          docker_tag: "stable-v1.34-92f8f63"
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify outputs
+        run: |
+          COMMIT="${{ steps.resolve.outputs.commit }}"
+          if ! [[ "${COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Expected 40-char commit hash, got=${COMMIT}"
+            exit 1
+          fi
+          if [[ "${COMMIT}" != *"92f8f63"* ]]; then
+            echo "Expected commit to contain 92f8f63, got=${COMMIT}"
+            exit 1
+          fi
+          if [ "${{ steps.resolve.outputs.branch }}" != "stable/v1.34" ]; then
+            echo "Expected branch=stable/v1.34, got=${{ steps.resolve.outputs.branch }}"
+            exit 1
+          fi
+
+  release-tag:
+    name: "Tag: official release (1.36.6)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Resolve tag
+        id: resolve
+        uses: ./.github/actions/get-weaviate-branch
+        with:
+          docker_tag: "1.36.6"
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify outputs
+        run: |
+          COMMIT="${{ steps.resolve.outputs.commit }}"
+          BRANCH="${{ steps.resolve.outputs.branch }}"
+          REF="${{ steps.resolve.outputs.ref }}"
+
+          # Commit should be a full 40-char hex hash
+          if ! [[ "${COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Expected 40-char commit hash, got=${COMMIT}"
+            exit 1
+          fi
+
+          # Ref should equal the resolved commit
+          if [ "${REF}" != "${COMMIT}" ]; then
+            echo "Expected ref to equal commit, ref=${REF}, commit=${COMMIT}"
+            exit 1
+          fi
+
+          # Branch should be stable/v1.36
+          if [ "${BRANCH}" != "stable/v1.36" ]; then
+            echo "Expected branch=stable/v1.36, got=${BRANCH}"
+            exit 1
+          fi
+
+  release-rc-tag:
+    name: "Tag: release candidate (1.36.0-rc.0)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Resolve tag
+        id: resolve
+        uses: ./.github/actions/get-weaviate-branch
+        with:
+          docker_tag: "1.36.0-rc.0"
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify outputs
+        run: |
+          COMMIT="${{ steps.resolve.outputs.commit }}"
+          BRANCH="${{ steps.resolve.outputs.branch }}"
+
+          # Commit should be a full 40-char hex hash
+          if ! [[ "${COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Expected 40-char commit hash, got=${COMMIT}"
+            exit 1
+          fi
+
+          if [ "${BRANCH}" != "stable/v1.36" ]; then
+            echo "Expected branch=stable/v1.36, got=${BRANCH}"
+            exit 1
+          fi
+
+  nightly-tag:
+    name: "Tag: nightly"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Resolve tag
+        id: resolve
+        uses: ./.github/actions/get-weaviate-branch
+        with:
+          docker_tag: "nightly"
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify outputs
+        run: |
+          COMMIT="${{ steps.resolve.outputs.commit }}"
+          BRANCH="${{ steps.resolve.outputs.branch }}"
+
+          # Commit should be a full 40-char hex hash
+          if ! [[ "${COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Expected 40-char commit hash, got=${COMMIT}"
+            exit 1
+          fi
+
+          if [ "${BRANCH}" != "main" ]; then
+            echo "Expected branch=main, got=${BRANCH}"
+            exit 1
+          fi
+
+  latest-tag:
+    name: "Tag: latest"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Resolve tag
+        id: resolve
+        uses: ./.github/actions/get-weaviate-branch
+        with:
+          docker_tag: "latest"
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify outputs
+        run: |
+          COMMIT="${{ steps.resolve.outputs.commit }}"
+          BRANCH="${{ steps.resolve.outputs.branch }}"
+          REF="${{ steps.resolve.outputs.ref }}"
+
+          # Commit should be a full 40-char hex hash
+          if ! [[ "${COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Expected 40-char commit hash, got=${COMMIT}"
+            exit 1
+          fi
+
+          # Ref should equal the resolved commit
+          if [ "${REF}" != "${COMMIT}" ]; then
+            echo "Expected ref to equal commit, ref=${REF}, commit=${COMMIT}"
+            exit 1
+          fi
+
+          # Branch should be stable/vX.Y
+          if ! [[ "${BRANCH}" =~ ^stable/v[0-9]+\.[0-9]+$ ]]; then
+            echo "Expected branch matching stable/vX.Y, got=${BRANCH}"
+            exit 1
+          fi
+
+  arm64-suffix:
+    name: "Tag: arm64 suffix stripped (main-01c9f49.arm64)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Resolve tag
+        id: resolve
+        uses: ./.github/actions/get-weaviate-branch
+        with:
+          docker_tag: "main-01c9f49.arm64"
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify outputs
+        run: |
+          COMMIT="${{ steps.resolve.outputs.commit }}"
+          if ! [[ "${COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Expected 40-char commit hash, got=${COMMIT}"
+            exit 1
+          fi
+          if [[ "${COMMIT}" != *"01c9f49"* ]]; then
+            echo "Expected commit to contain 01c9f49, got=${COMMIT}"
+            exit 1
+          fi
+          if [ "${{ steps.resolve.outputs.branch }}" != "main" ]; then
+            echo "Expected branch=main, got=${{ steps.resolve.outputs.branch }}"
+            exit 1
+          fi

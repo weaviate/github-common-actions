@@ -1,0 +1,184 @@
+name: Test Pull Weaviate Code Action
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - '.github/actions/pull-weaviate-code/**'
+      - '.github/actions/get-weaviate-branch/**'
+      - '.github/workflows/pull-weaviate-code-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  release-tag:
+    name: "Clone from release tag (1.36.6)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Pull weaviate code
+        id: pull
+        uses: ./.github/actions/pull-weaviate-code
+        with:
+          docker_tag: "1.36.6"
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify clone
+        run: |
+          # Directory should exist
+          if [ ! -d "${{ steps.pull.outputs.weaviate_path }}" ]; then
+            echo "Weaviate directory not found at ${{ steps.pull.outputs.weaviate_path }}"
+            exit 1
+          fi
+
+          # Should contain weaviate source files
+          if [ ! -f "${{ steps.pull.outputs.weaviate_path }}/go.mod" ]; then
+            echo "go.mod not found — clone appears incomplete"
+            exit 1
+          fi
+
+          # Commit should be a 40-char hash
+          COMMIT="${{ steps.pull.outputs.commit }}"
+          if ! [[ "${COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Expected 40-char commit hash, got=${COMMIT}"
+            exit 1
+          fi
+
+          # Verify HEAD matches the resolved commit
+          cd "${{ steps.pull.outputs.weaviate_path }}"
+          HEAD_SHA=$(git rev-parse HEAD)
+          if [ "${HEAD_SHA}" != "${COMMIT}" ]; then
+            echo "HEAD (${HEAD_SHA}) does not match expected commit (${COMMIT})"
+            exit 1
+          fi
+
+          echo "Branch: ${{ steps.pull.outputs.branch }}"
+          echo "Commit: ${COMMIT}"
+
+  branch-tag-with-hash:
+    name: "Clone from branch+hash tag (main-01c9f49)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Pull weaviate code
+        id: pull
+        uses: ./.github/actions/pull-weaviate-code
+        with:
+          docker_tag: "main-01c9f49"
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify clone
+        run: |
+          if [ ! -f "${{ steps.pull.outputs.weaviate_path }}/go.mod" ]; then
+            echo "go.mod not found — clone appears incomplete"
+            exit 1
+          fi
+
+          # Branch should be main
+          if [ "${{ steps.pull.outputs.branch }}" != "main" ]; then
+            echo "Expected branch=main, got=${{ steps.pull.outputs.branch }}"
+            exit 1
+          fi
+
+          # Verify HEAD contains the short hash
+          cd "${{ steps.pull.outputs.weaviate_path }}"
+          HEAD_SHA=$(git rev-parse HEAD)
+          if [[ "${HEAD_SHA}" != *"01c9f49"* ]]; then
+            echo "HEAD (${HEAD_SHA}) does not contain expected short hash 01c9f49"
+            exit 1
+          fi
+
+  custom-directory:
+    name: "Clone into custom directory"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Pull weaviate code into custom dir
+        id: pull
+        uses: ./.github/actions/pull-weaviate-code
+        with:
+          docker_tag: "1.36.6"
+          directory: "${{ runner.temp }}/custom-dir"
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify custom directory
+        run: |
+          EXPECTED_DIR="${{ runner.temp }}/custom-dir/weaviate"
+          if [ ! -d "${EXPECTED_DIR}" ]; then
+            echo "Expected directory ${EXPECTED_DIR} does not exist"
+            exit 1
+          fi
+
+          if [ ! -f "${EXPECTED_DIR}/go.mod" ]; then
+            echo "go.mod not found in ${EXPECTED_DIR}"
+            exit 1
+          fi
+
+          echo "weaviate_path output: ${{ steps.pull.outputs.weaviate_path }}"
+
+  directory-conflict:
+    name: "Fail when weaviate directory already exists"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Create conflicting directory
+        run: mkdir -p ./weaviate
+
+      - name: Attempt pull (should fail)
+        id: pull
+        continue-on-error: true
+        uses: ./.github/actions/pull-weaviate-code
+        with:
+          docker_tag: "1.36.6"
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify failure
+        run: |
+          if [ "${{ steps.pull.outcome }}" != "failure" ]; then
+            echo "Expected action to fail when weaviate directory already exists, but it succeeded"
+            exit 1
+          fi
+          echo "Action correctly failed due to existing weaviate directory"
+
+  nightly-tag:
+    name: "Clone from nightly tag"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Pull weaviate code
+        id: pull
+        uses: ./.github/actions/pull-weaviate-code
+        with:
+          docker_tag: "nightly"
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify clone
+        run: |
+          if [ ! -f "${{ steps.pull.outputs.weaviate_path }}/go.mod" ]; then
+            echo "go.mod not found — clone appears incomplete"
+            exit 1
+          fi
+
+          if [ "${{ steps.pull.outputs.branch }}" != "main" ]; then
+            echo "Expected branch=main, got=${{ steps.pull.outputs.branch }}"
+            exit 1
+          fi
+
+          # Commit should be a 40-char hash
+          COMMIT="${{ steps.pull.outputs.commit }}"
+          if ! [[ "${COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Expected 40-char commit hash, got=${COMMIT}"
+            exit 1
+          fi

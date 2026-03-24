@@ -1,0 +1,76 @@
+name: pull-weaviate-code
+description: 'Clones the weaviate/weaviate repository at the commit matching a given Docker tag'
+inputs:
+  docker_tag:
+    description: 'Weaviate Docker tag to resolve (e.g. 1.36.6, preview-my-pr-abc1234.amd64, main-abc1234, nightly, latest)'
+    required: true
+  directory:
+    description: 'Directory in which to clone the weaviate repository (a "weaviate" folder will be created inside it)'
+    required: false
+    default: '.'
+  gh_token:
+    description: 'GitHub token for authenticated API requests and git operations (avoids rate limits)'
+    required: true
+outputs:
+  ref:
+    description: 'The git ref that was checked out (full 40-char commit hash)'
+    value: ${{ steps.resolve-tag.outputs.ref }}
+  commit:
+    description: 'Full 40-char commit hash that was checked out'
+    value: ${{ steps.resolve-tag.outputs.commit }}
+  branch:
+    description: 'The branch name (if determinable)'
+    value: ${{ steps.resolve-tag.outputs.branch }}
+  weaviate_path:
+    description: 'Full path to the cloned weaviate directory'
+    value: ${{ steps.clone.outputs.weaviate_path }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Resolve Docker tag to git ref
+      id: resolve-tag
+      uses: ./.github/actions/get-weaviate-branch
+      with:
+        docker_tag: ${{ inputs.docker_tag }}
+        gh_token: ${{ inputs.gh_token }}
+
+    - name: Clone weaviate at resolved ref
+      id: clone
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.gh_token }}
+      run: |
+        set -euo pipefail
+
+        # Authenticate git via HTTP header injected through env-based config.
+        # These env vars are scoped to this shell step — no cleanup needed.
+        AUTH_HEADER="Authorization: Basic $(echo -n "x-access-token:${GH_TOKEN}" | base64)"
+        export GIT_CONFIG_COUNT=1
+        export GIT_CONFIG_KEY_0="http.https://github.com/.extraHeader"
+        export GIT_CONFIG_VALUE_0="${AUTH_HEADER}"
+        export GIT_TERMINAL_PROMPT=0
+
+        WEAVIATE_REPO="https://github.com/weaviate/weaviate.git"
+        TARGET_DIR="${{ inputs.directory }}"
+        WEAVIATE_DIR="${TARGET_DIR}/weaviate"
+        COMMIT="${{ steps.resolve-tag.outputs.commit }}"
+
+        # Check that the weaviate folder doesn't already exist
+        if [ -d "${WEAVIATE_DIR}" ]; then
+          echo "::error::Directory '${WEAVIATE_DIR}' already exists. Remove it before running this action to avoid conflicts."
+          exit 1
+        fi
+
+        # Ensure parent directory exists
+        mkdir -p "${TARGET_DIR}"
+
+        echo "Cloning weaviate at commit ${COMMIT} into ${WEAVIATE_DIR}..."
+        git init "${WEAVIATE_DIR}"
+        cd "${WEAVIATE_DIR}"
+        git remote add origin "${WEAVIATE_REPO}"
+        git fetch --depth=1 origin "${COMMIT}"
+        git checkout FETCH_HEAD
+
+        FULL_PATH="$(pwd)"
+        echo "weaviate_path=${FULL_PATH}" >> "${GITHUB_OUTPUT}"
+        echo "Successfully cloned weaviate at ${COMMIT} to ${FULL_PATH}"

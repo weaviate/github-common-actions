@@ -1,0 +1,153 @@
+name: get-weaviate-branch
+description: 'Resolves a Weaviate Docker tag to the git ref (commit/branch) from weaviate/weaviate that matches the image code'
+inputs:
+  docker_tag:
+    description: 'The Docker tag to resolve (e.g. 1.36.6, preview-my-pr-abc1234.amd64, main-abc1234, nightly, latest)'
+    required: true
+  gh_token:
+    description: 'GitHub token for authenticated git operations and API calls (avoids rate limits)'
+    required: true
+outputs:
+  ref:
+    description: 'Best git ref for checkout (always a full 40-char commit hash)'
+    value: ${{ steps.resolve.outputs.ref }}
+  commit:
+    description: 'Full 40-char commit hash'
+    value: ${{ steps.resolve.outputs.commit }}
+  branch:
+    description: 'Branch name best-guess (empty if not determinable, e.g. for preview/PR tags)'
+    value: ${{ steps.resolve.outputs.branch }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Resolve Docker tag to git ref
+      id: resolve
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.gh_token }}
+      run: |
+        set -euo pipefail
+
+        # Authenticate git via HTTP header injected through env-based config.
+        # This avoids embedding the token in URLs (which leak in error messages/logs)
+        # and avoids writing to ~/.gitconfig (which persists beyond this step).
+        # These env vars are scoped to this shell step only.
+        AUTH_HEADER="Authorization: Basic $(echo -n "x-access-token:${GH_TOKEN}" | base64)"
+        export GIT_CONFIG_COUNT=1
+        export GIT_CONFIG_KEY_0="http.https://github.com/.extraHeader"
+        export GIT_CONFIG_VALUE_0="${AUTH_HEADER}"
+        export GIT_TERMINAL_PROMPT=0
+
+        WEAVIATE_REPO="https://github.com/weaviate/weaviate.git"
+        WEAVIATE_API="https://api.github.com/repos/weaviate/weaviate"
+        tag="${{ inputs.docker_tag }}"
+        commit=""
+        branch=""
+
+        echo "Resolving Docker tag: ${tag}"
+
+        # Step 1: Strip architecture suffix
+        tag_stripped="${tag}"
+        tag_stripped="${tag_stripped%.amd64}"
+        tag_stripped="${tag_stripped%.arm64}"
+
+        # Step 2: Handle special Docker-only tags
+        if [ "${tag_stripped}" = "nightly" ]; then
+          echo "Tag is 'nightly' — resolving main branch HEAD"
+          commit=$(git ls-remote "${WEAVIATE_REPO}" refs/heads/main | awk '{print $1}')
+          branch="main"
+        elif [ "${tag_stripped}" = "latest" ]; then
+          echo "Tag is 'latest' — finding highest release tag"
+          # Find the latest release tag name
+          latest_tag=$(git -c 'versionsort.suffix=-' ls-remote --tags --refs --sort='-v:refname' "${WEAVIATE_REPO}" \
+            | grep -oE 'refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | head -1 | sed 's|refs/tags/||')
+
+          # Resolve the annotated tag to its underlying commit (use ^{} dereferenced entry)
+          commit=$(git ls-remote --tags "${WEAVIATE_REPO}" "refs/tags/${latest_tag}" "refs/tags/${latest_tag}^{}" \
+            | tail -1 | awk '{print $1}')
+
+          # Extract major.minor for branch
+          version="${latest_tag#v}"
+          major_minor=$(echo "${version}" | grep -oE '^[0-9]+\.[0-9]+')
+          branch="stable/v${major_minor}"
+          echo "Resolved 'latest' to tag ${latest_tag} (commit ${commit})"
+        else
+          # Step 3: Try to extract 7-char hex hash from end (after last '-')
+          suffix="${tag_stripped##*-}"
+          if [[ "${suffix}" =~ ^[0-9a-f]{7}$ ]]; then
+            commit="${suffix}"
+            prefix="${tag_stripped%-*}"
+
+            # Step 4: Determine branch from prefix
+            if [[ "${prefix}" =~ ^preview- ]]; then
+              # Preview/PR build — branch is not recoverable from tag
+              branch=""
+              echo "Preview tag detected, short commit: ${commit}"
+            elif [[ "${prefix}" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+              # Semver prefix (e.g. 1.37.0-dev, 1.36.6) — branch not directly in tag
+              branch=""
+              echo "Semver+hash tag detected, short commit: ${commit}"
+            else
+              # Branch name prefix (e.g. main, stable-v1.34)
+              # In push_docker.sh, '/' in branch names is replaced with '-'
+              # Try common patterns to restore the original branch name
+              if [[ "${prefix}" =~ ^stable-v[0-9]+\.[0-9]+$ ]]; then
+                branch="${prefix/stable-/stable/}"
+              else
+                # For simple branch names (main, feature-x), keep as-is
+                # Cannot reliably restore '/' for arbitrary branches
+                branch="${prefix}"
+              fi
+              echo "Branch tag detected, branch: ${branch}, short commit: ${commit}"
+            fi
+          else
+            # Step 5: No hash found — must be a release version tag (X.Y.Z or X.Y.Z-rc.N)
+            version="${tag_stripped}"
+            git_tag="v${version}"
+            echo "Release tag detected: ${git_tag} — resolving commit from git"
+
+            # Resolve the annotated tag to its commit (use ^{} dereferenced entry if present)
+            tag_commit=$(git ls-remote --tags "${WEAVIATE_REPO}" "refs/tags/${git_tag}" "refs/tags/${git_tag}^{}" \
+              | tail -1 | awk '{print $1}')
+
+            if [ -z "${tag_commit}" ]; then
+              echo "::error::Could not find git tag ${git_tag} in weaviate/weaviate"
+              exit 1
+            fi
+
+            commit="${tag_commit}"
+            # Extract major.minor for stable branch
+            major_minor=$(echo "${version}" | grep -oE '^[0-9]+\.[0-9]+')
+            branch="stable/v${major_minor}"
+            echo "Resolved ${git_tag} to commit ${commit}"
+          fi
+        fi
+
+        # Step 6: Resolve short hashes (7-char) to full 40-char SHA via GitHub API
+        if [ "${#commit}" -lt 40 ]; then
+          echo "Resolving short hash ${commit} to full SHA..."
+          full_sha=$(curl -sf \
+            -H "Authorization: token ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "${WEAVIATE_API}/commits/${commit}" \
+            | grep -m1 '"sha"' | grep -oE '[0-9a-f]{40}')
+
+          if [ -z "${full_sha}" ]; then
+            echo "::error::Could not resolve short hash ${commit} to a full SHA"
+            exit 1
+          fi
+          echo "Resolved ${commit} -> ${full_sha}"
+          commit="${full_sha}"
+        fi
+
+        ref="${commit}"
+
+        echo "ref=${ref}" >> "${GITHUB_OUTPUT}"
+        echo "commit=${commit}" >> "${GITHUB_OUTPUT}"
+        echo "branch=${branch}" >> "${GITHUB_OUTPUT}"
+
+        echo "--- Results ---"
+        echo "ref:    ${ref}"
+        echo "commit: ${commit}"
+        echo "branch: ${branch}"
