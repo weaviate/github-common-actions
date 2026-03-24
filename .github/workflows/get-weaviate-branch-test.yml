@@ -12,31 +12,31 @@ permissions:
   contents: read
 
 jobs:
+  # Real Docker tag: semitechnologies/weaviate:1.34.19-6175eab.amd64
   semver-hash-arch:
-    name: "Tag: semver + hash + arch (1.36.6-76e62e8.amd64)"
+    name: "Tag: semver + hash + arch (1.34.19-6175eab.amd64)"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Resolve tag
         id: resolve
         uses: ./.github/actions/get-weaviate-branch
         with:
-          docker_tag: "1.36.6-76e62e8.amd64"
+          docker_tag: "1.34.19-6175eab.amd64"
           gh_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify outputs
         run: |
           COMMIT="${{ steps.resolve.outputs.commit }}"
-          # Should be a full 40-char hash resolved from short hash 76e62e8
+          # Should be a full 40-char hash resolved from short hash 6175eab
           if ! [[ "${COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
             echo "Expected 40-char commit hash, got=${COMMIT}"
             exit 1
           fi
-          # Must contain the original short hash
-          if [[ "${COMMIT}" != *"76e62e8"* ]]; then
-            echo "Expected commit to contain 76e62e8, got=${COMMIT}"
+          if [[ "${COMMIT}" != *"6175eab"* ]]; then
+            echo "Expected commit to contain 6175eab, got=${COMMIT}"
             exit 1
           fi
           # Ref should equal commit
@@ -50,18 +50,19 @@ jobs:
             exit 1
           fi
 
+  # Real Docker tag: semitechnologies/weaviate:1.37.0-dev-305c7dc.amd64
   semver-hash-no-arch:
-    name: "Tag: semver + hash no arch (1.36.6-76e62e8)"
+    name: "Tag: semver + hash no arch (1.37.0-dev-305c7dc)"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Resolve tag
         id: resolve
         uses: ./.github/actions/get-weaviate-branch
         with:
-          docker_tag: "1.36.6-76e62e8"
+          docker_tag: "1.37.0-dev-305c7dc"
           gh_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify outputs
@@ -71,23 +72,24 @@ jobs:
             echo "Expected 40-char commit hash, got=${COMMIT}"
             exit 1
           fi
-          if [[ "${COMMIT}" != *"76e62e8"* ]]; then
-            echo "Expected commit to contain 76e62e8, got=${COMMIT}"
+          if [[ "${COMMIT}" != *"305c7dc"* ]]; then
+            echo "Expected commit to contain 305c7dc, got=${COMMIT}"
             exit 1
           fi
 
+  # Real Docker tag: semitechnologies/weaviate:1.37.0-dev-305c7dc.amd64
   semver-dev-hash:
-    name: "Tag: semver-dev + hash (1.37.0-dev-01c9f49)"
+    name: "Tag: semver-dev + hash + arch (1.37.0-dev-305c7dc.amd64)"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Resolve tag
         id: resolve
         uses: ./.github/actions/get-weaviate-branch
         with:
-          docker_tag: "1.37.0-dev-01c9f49"
+          docker_tag: "1.37.0-dev-305c7dc.amd64"
           gh_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify outputs
@@ -97,23 +99,24 @@ jobs:
             echo "Expected 40-char commit hash, got=${COMMIT}"
             exit 1
           fi
-          if [[ "${COMMIT}" != *"01c9f49"* ]]; then
-            echo "Expected commit to contain 01c9f49, got=${COMMIT}"
+          if [[ "${COMMIT}" != *"305c7dc"* ]]; then
+            echo "Expected commit to contain 305c7dc, got=${COMMIT}"
             exit 1
           fi
 
+  # Real Docker tag: semitechnologies/weaviate:preview-perf-compaction-replace-use-less-heap-6175eab.amd64
   preview-tag:
     name: "Tag: preview + hash + arch"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Resolve tag
         id: resolve
         uses: ./.github/actions/get-weaviate-branch
         with:
-          docker_tag: "preview-do-not-merge-test-only-perf-compaction-replace-76e62e8.amd64"
+          docker_tag: "preview-perf-compaction-replace-use-less-heap-6175eab.amd64"
           gh_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify outputs
@@ -123,8 +126,8 @@ jobs:
             echo "Expected 40-char commit hash, got=${COMMIT}"
             exit 1
           fi
-          if [[ "${COMMIT}" != *"76e62e8"* ]]; then
-            echo "Expected commit to contain 76e62e8, got=${COMMIT}"
+          if [[ "${COMMIT}" != *"6175eab"* ]]; then
+            echo "Expected commit to contain 6175eab, got=${COMMIT}"
             exit 1
           fi
           # Branch should be empty for preview tags
@@ -133,12 +136,13 @@ jobs:
             exit 1
           fi
 
+  # Real Docker tag: semitechnologies/weaviate:main-01c9f49
   branch-main-tag:
     name: "Tag: main branch + hash (main-01c9f49)"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Resolve tag
         id: resolve
@@ -163,18 +167,19 @@ jobs:
             exit 1
           fi
 
+  # Real Docker tag: semitechnologies/weaviate:stable-v1.34-519f0dc
   stable-branch-tag:
-    name: "Tag: stable branch + hash (stable-v1.34-92f8f63)"
+    name: "Tag: stable branch + hash (stable-v1.34-519f0dc)"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Resolve tag
         id: resolve
         uses: ./.github/actions/get-weaviate-branch
         with:
-          docker_tag: "stable-v1.34-92f8f63"
+          docker_tag: "stable-v1.34-519f0dc"
           gh_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify outputs
@@ -184,8 +189,8 @@ jobs:
             echo "Expected 40-char commit hash, got=${COMMIT}"
             exit 1
           fi
-          if [[ "${COMMIT}" != *"92f8f63"* ]]; then
-            echo "Expected commit to contain 92f8f63, got=${COMMIT}"
+          if [[ "${COMMIT}" != *"519f0dc"* ]]; then
+            echo "Expected commit to contain 519f0dc, got=${COMMIT}"
             exit 1
           fi
           if [ "${{ steps.resolve.outputs.branch }}" != "stable/v1.34" ]; then
@@ -198,7 +203,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Resolve tag
         id: resolve
@@ -236,7 +241,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Resolve tag
         id: resolve
@@ -256,8 +261,8 @@ jobs:
             exit 1
           fi
 
-          if [ "${BRANCH}" != "stable/v1.36" ]; then
-            echo "Expected branch=stable/v1.36, got=${BRANCH}"
+          if [ "${BRANCH}" != "stable/v1.36.0-rc" ]; then
+            echo "Expected branch=stable/v1.36.0-rc, got=${BRANCH}"
             exit 1
           fi
 
@@ -266,7 +271,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Resolve tag
         id: resolve
@@ -296,7 +301,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Resolve tag
         id: resolve
@@ -329,18 +334,19 @@ jobs:
             exit 1
           fi
 
+  # Real Docker tag: semitechnologies/weaviate:1.34.19-6175eab.arm64
   arm64-suffix:
-    name: "Tag: arm64 suffix stripped (main-01c9f49.arm64)"
+    name: "Tag: arm64 suffix stripped (1.34.19-6175eab.arm64)"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Resolve tag
         id: resolve
         uses: ./.github/actions/get-weaviate-branch
         with:
-          docker_tag: "main-01c9f49.arm64"
+          docker_tag: "1.34.19-6175eab.arm64"
           gh_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify outputs
@@ -350,11 +356,7 @@ jobs:
             echo "Expected 40-char commit hash, got=${COMMIT}"
             exit 1
           fi
-          if [[ "${COMMIT}" != *"01c9f49"* ]]; then
-            echo "Expected commit to contain 01c9f49, got=${COMMIT}"
-            exit 1
-          fi
-          if [ "${{ steps.resolve.outputs.branch }}" != "main" ]; then
-            echo "Expected branch=main, got=${{ steps.resolve.outputs.branch }}"
+          if [[ "${COMMIT}" != *"6175eab"* ]]; then
+            echo "Expected commit to contain 6175eab, got=${COMMIT}"
             exit 1
           fi

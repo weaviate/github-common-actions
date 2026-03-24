@@ -9,8 +9,9 @@ inputs:
     required: false
     default: '.'
   gh_token:
-    description: 'GitHub token for authenticated API requests and git operations (avoids rate limits)'
-    required: true
+    description: 'GitHub token passed to get-weaviate-branch for API calls (avoids rate limits). Optional but recommended.'
+    required: false
+    default: ''
 outputs:
   ref:
     description: 'The git ref that was checked out (full 40-char commit hash)'
@@ -37,27 +38,18 @@ runs:
     - name: Clone weaviate at resolved ref
       id: clone
       shell: bash
-      env:
-        GH_TOKEN: ${{ inputs.gh_token }}
       run: |
         set -euo pipefail
 
-        # Authenticate git via HTTP header injected through env-based config.
-        # These env vars are scoped to this shell step — no cleanup needed.
-        AUTH_HEADER="Authorization: Basic $(echo -n "x-access-token:${GH_TOKEN}" | base64)"
-        export GIT_CONFIG_COUNT=1
-        export GIT_CONFIG_KEY_0="http.https://github.com/.extraHeader"
-        export GIT_CONFIG_VALUE_0="${AUTH_HEADER}"
-        export GIT_TERMINAL_PROMPT=0
-
+        # weaviate/weaviate is a public repo — no auth needed for git fetch.
         WEAVIATE_REPO="https://github.com/weaviate/weaviate.git"
         TARGET_DIR="${{ inputs.directory }}"
         WEAVIATE_DIR="${TARGET_DIR}/weaviate"
         COMMIT="${{ steps.resolve-tag.outputs.commit }}"
 
-        # Check that the weaviate folder doesn't already exist
-        if [ -d "${WEAVIATE_DIR}" ]; then
-          echo "::error::Directory '${WEAVIATE_DIR}' already exists. Remove it before running this action to avoid conflicts."
+        # Check that the weaviate path doesn't already exist (file, directory, or symlink)
+        if [ -e "${WEAVIATE_DIR}" ]; then
+          echo "::error::Path '${WEAVIATE_DIR}' already exists. Remove it before running this action to avoid conflicts."
           exit 1
         fi
 

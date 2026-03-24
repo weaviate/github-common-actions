@@ -5,8 +5,9 @@ inputs:
     description: 'The Docker tag to resolve (e.g. 1.36.6, preview-my-pr-abc1234.amd64, main-abc1234, nightly, latest)'
     required: true
   gh_token:
-    description: 'GitHub token for authenticated git operations and API calls (avoids rate limits)'
-    required: true
+    description: 'GitHub token for API calls to resolve short commit hashes (avoids rate limits). Optional but recommended.'
+    required: false
+    default: ''
 outputs:
   ref:
     description: 'Best git ref for checkout (always a full 40-char commit hash)'
@@ -28,16 +29,9 @@ runs:
       run: |
         set -euo pipefail
 
-        # Authenticate git via HTTP header injected through env-based config.
-        # This avoids embedding the token in URLs (which leak in error messages/logs)
-        # and avoids writing to ~/.gitconfig (which persists beyond this step).
-        # These env vars are scoped to this shell step only.
-        AUTH_HEADER="Authorization: Basic $(echo -n "x-access-token:${GH_TOKEN}" | base64)"
-        export GIT_CONFIG_COUNT=1
-        export GIT_CONFIG_KEY_0="http.https://github.com/.extraHeader"
-        export GIT_CONFIG_VALUE_0="${AUTH_HEADER}"
-        export GIT_TERMINAL_PROMPT=0
-
+        # weaviate/weaviate is a public repo — git operations (ls-remote, fetch)
+        # work without authentication. The token is only needed for the GitHub
+        # API call that resolves short commit hashes (step 6).
         WEAVIATE_REPO="https://github.com/weaviate/weaviate.git"
         WEAVIATE_API="https://api.github.com/repos/weaviate/weaviate"
         tag="${{ inputs.docker_tag }}"
@@ -58,10 +52,11 @@ runs:
           branch="main"
         elif [ "${tag_stripped}" = "latest" ]; then
           echo "Tag is 'latest' — finding highest release tag"
-          # Find the latest release tag name
-          latest_tag=$(git -c 'versionsort.suffix=-' ls-remote --tags --refs --sort='-v:refname' "${WEAVIATE_REPO}" \
-            | grep -oE 'refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
-            | head -1 | sed 's|refs/tags/||')
+          # Find the latest release tag name — capture full output to avoid
+          # broken pipe from head -1 under pipefail.
+          all_tags=$(git -c 'versionsort.suffix=-' ls-remote --tags --refs --sort='-v:refname' "${WEAVIATE_REPO}" \
+            | grep -oE 'refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' || true)
+          latest_tag=$(echo "${all_tags}" | head -1 | sed 's|refs/tags/||')
 
           # Resolve the annotated tag to its underlying commit (use ^{} dereferenced entry)
           commit=$(git ls-remote --tags "${WEAVIATE_REPO}" "refs/tags/${latest_tag}" "refs/tags/${latest_tag}^{}" \
@@ -69,7 +64,7 @@ runs:
 
           # Extract major.minor for branch
           version="${latest_tag#v}"
-          major_minor=$(echo "${version}" | grep -oE '^[0-9]+\.[0-9]+')
+          major_minor="${version%.*}"
           branch="stable/v${major_minor}"
           echo "Resolved 'latest' to tag ${latest_tag} (commit ${commit})"
         else
@@ -118,7 +113,7 @@ runs:
 
             commit="${tag_commit}"
             # Extract major.minor for stable branch
-            major_minor=$(echo "${version}" | grep -oE '^[0-9]+\.[0-9]+')
+            major_minor="${version%.*}"
             branch="stable/v${major_minor}"
             echo "Resolved ${git_tag} to commit ${commit}"
           fi
@@ -127,11 +122,17 @@ runs:
         # Step 6: Resolve short hashes (7-char) to full 40-char SHA via GitHub API
         if [ "${#commit}" -lt 40 ]; then
           echo "Resolving short hash ${commit} to full SHA..."
-          full_sha=$(curl -sf \
-            -H "Authorization: token ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "${WEAVIATE_API}/commits/${commit}" \
-            | grep -m1 '"sha"' | grep -oE '[0-9a-f]{40}')
+          # Capture full response first to avoid broken-pipe (exit 23) from
+          # curl when piped to grep -m1 under pipefail.
+          curl_args=(-sf -H "Accept: application/vnd.github.v3+json")
+          if [ -n "${GH_TOKEN}" ]; then
+            curl_args+=(-H "Authorization: token ${GH_TOKEN}")
+          fi
+          response=$(curl "${curl_args[@]}" "${WEAVIATE_API}/commits/${commit}")
+          # Extract SHA without grep -m1 pipe to avoid broken pipe under pipefail.
+          # The first "sha" in the response is the commit SHA.
+          all_shas=$(echo "${response}" | sed -n 's/.*"sha": *"\([0-9a-f]\{40\}\)".*/\1/p')
+          full_sha=$(echo "${all_shas}" | head -1)
 
           if [ -z "${full_sha}" ]; then
             echo "::error::Could not resolve short hash ${commit} to a full SHA"
