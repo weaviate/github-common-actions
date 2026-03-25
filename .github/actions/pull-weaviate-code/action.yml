@@ -1,0 +1,68 @@
+name: pull-weaviate-code
+description: 'Clones the weaviate/weaviate repository at the commit matching a given Docker tag'
+inputs:
+  docker_tag:
+    description: 'Weaviate Docker tag to resolve (e.g. 1.36.6, preview-my-pr-abc1234.amd64, main-abc1234, nightly, latest)'
+    required: true
+  directory:
+    description: 'Directory in which to clone the weaviate repository (a "weaviate" folder will be created inside it)'
+    required: false
+    default: '.'
+  gh_token:
+    description: 'GitHub token passed to get-weaviate-branch for API calls (avoids rate limits). Optional but recommended.'
+    required: false
+    default: ''
+outputs:
+  ref:
+    description: 'The git ref that was checked out (full 40-char commit hash)'
+    value: ${{ steps.resolve-tag.outputs.ref }}
+  commit:
+    description: 'Full 40-char commit hash that was checked out'
+    value: ${{ steps.resolve-tag.outputs.commit }}
+  branch:
+    description: 'The branch name (if determinable)'
+    value: ${{ steps.resolve-tag.outputs.branch }}
+  weaviate_path:
+    description: 'Full path to the cloned weaviate directory'
+    value: ${{ steps.clone.outputs.weaviate_path }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Resolve Docker tag to git ref
+      id: resolve-tag
+      uses: ./.github/actions/get-weaviate-branch
+      with:
+        docker_tag: ${{ inputs.docker_tag }}
+        gh_token: ${{ inputs.gh_token }}
+
+    - name: Clone weaviate at resolved ref
+      id: clone
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        # weaviate/weaviate is a public repo — no auth needed for git fetch.
+        WEAVIATE_REPO="https://github.com/weaviate/weaviate.git"
+        TARGET_DIR="${{ inputs.directory }}"
+        WEAVIATE_DIR="${TARGET_DIR}/weaviate"
+        COMMIT="${{ steps.resolve-tag.outputs.commit }}"
+
+        # Check that the weaviate path doesn't already exist (file, directory, or symlink)
+        if [ -e "${WEAVIATE_DIR}" ]; then
+          echo "::error::Path '${WEAVIATE_DIR}' already exists. Remove it before running this action to avoid conflicts."
+          exit 1
+        fi
+
+        # Ensure parent directory exists
+        mkdir -p "${TARGET_DIR}"
+
+        echo "Cloning weaviate at commit ${COMMIT} into ${WEAVIATE_DIR}..."
+        git init "${WEAVIATE_DIR}"
+        cd "${WEAVIATE_DIR}"
+        git remote add origin "${WEAVIATE_REPO}"
+        git fetch --depth=1 origin "${COMMIT}"
+        git checkout FETCH_HEAD
+
+        FULL_PATH="$(pwd)"
+        echo "weaviate_path=${FULL_PATH}" >> "${GITHUB_OUTPUT}"
+        echo "Successfully cloned weaviate at ${COMMIT} to ${FULL_PATH}"
