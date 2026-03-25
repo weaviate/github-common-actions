@@ -261,8 +261,8 @@ jobs:
             exit 1
           fi
 
-          if [ "${BRANCH}" != "stable/v1.36.0-rc" ]; then
-            echo "Expected branch=stable/v1.36.0-rc, got=${BRANCH}"
+          if [ "${BRANCH}" != "stable/v1.36" ]; then
+            echo "Expected branch=stable/v1.36, got=${BRANCH}"
             exit 1
           fi
 

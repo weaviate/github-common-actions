@@ -57,14 +57,22 @@ runs:
           all_tags=$(git -c 'versionsort.suffix=-' ls-remote --tags --refs --sort='-v:refname' "${WEAVIATE_REPO}" \
             | grep -oE 'refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' || true)
           latest_tag=$(echo "${all_tags}" | head -1 | sed 's|refs/tags/||')
+          if [ -z "${latest_tag}" ]; then
+            echo "::error::Failed to find any release tag for 'latest' Docker tag"
+            exit 1
+          fi
 
           # Resolve the annotated tag to its underlying commit (use ^{} dereferenced entry)
           commit=$(git ls-remote --tags "${WEAVIATE_REPO}" "refs/tags/${latest_tag}" "refs/tags/${latest_tag}^{}" \
             | tail -1 | awk '{print $1}')
+          if [ -z "${commit}" ]; then
+            echo "::error::Failed to resolve commit for tag '${latest_tag}'"
+            exit 1
+          fi
 
           # Extract major.minor for branch
           version="${latest_tag#v}"
-          major_minor="${version%.*}"
+          major_minor=$(echo "${version}" | grep -oE '^[0-9]+\.[0-9]+')
           branch="stable/v${major_minor}"
           echo "Resolved 'latest' to tag ${latest_tag} (commit ${commit})"
         else
@@ -112,23 +120,28 @@ runs:
             fi
 
             commit="${tag_commit}"
-            # Extract major.minor for stable branch
-            major_minor="${version%.*}"
+            # Extract major.minor for stable branch (grep handles RC versions like 1.36.0-rc.0 → 1.36)
+            major_minor=$(echo "${version}" | grep -oE '^[0-9]+\.[0-9]+')
             branch="stable/v${major_minor}"
             echo "Resolved ${git_tag} to commit ${commit}"
           fi
         fi
 
         # Step 6: Resolve short hashes (7-char) to full 40-char SHA via GitHub API
+        if [ -z "${commit}" ]; then
+          echo "::error::No commit hash could be extracted from Docker tag '${tag}'"
+          exit 1
+        fi
         if [ "${#commit}" -lt 40 ]; then
           echo "Resolving short hash ${commit} to full SHA..."
-          # Capture full response first to avoid broken-pipe (exit 23) from
-          # curl when piped to grep -m1 under pipefail.
           curl_args=(-sf -H "Accept: application/vnd.github.v3+json")
           if [ -n "${GH_TOKEN}" ]; then
-            curl_args+=(-H "Authorization: token ${GH_TOKEN}")
+            curl_args+=(-H "Authorization: Bearer ${GH_TOKEN}")
           fi
-          response=$(curl "${curl_args[@]}" "${WEAVIATE_API}/commits/${commit}")
+          if ! response=$(curl "${curl_args[@]}" "${WEAVIATE_API}/commits/${commit}"); then
+            echo "::error::GitHub API call failed when resolving short hash '${commit}'"
+            exit 1
+          fi
           # Extract SHA without grep -m1 pipe to avoid broken pipe under pipefail.
           # The first "sha" in the response is the commit SHA.
           all_shas=$(echo "${response}" | sed -n 's/.*"sha": *"\([0-9a-f]\{40\}\)".*/\1/p')
