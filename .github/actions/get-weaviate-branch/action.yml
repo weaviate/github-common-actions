@@ -142,10 +142,7 @@ runs:
             echo "::error::GitHub API call failed when resolving short hash '${commit}'"
             exit 1
           fi
-          # Extract SHA without grep -m1 pipe to avoid broken pipe under pipefail.
-          # The first "sha" in the response is the commit SHA.
-          all_shas=$(echo "${response}" | sed -n 's/.*"sha": *"\([0-9a-f]\{40\}\)".*/\1/p')
-          full_sha=$(echo "${all_shas}" | head -1)
+          full_sha=$(printf '%s\n' "${response}" | jq -r '.sha // empty')
 
           if [ -z "${full_sha}" ]; then
             echo "::error::Could not resolve short hash ${commit} to a full SHA"
