@@ -1,0 +1,104 @@
+name: get-latest-branches
+description: 'Returns the latest N version branches (e.g. stable/v1.38) of a repository, newest last, optionally including main. Ideal for matrix strategies via fromJSON.'
+inputs:
+  repository:
+    description: 'The GitHub repository (owner/name) to enumerate version branches from.'
+    required: false
+    default: 'weaviate/weaviate'
+  count:
+    description: 'Number of most-recent version branches to return.'
+    required: false
+    default: '3'
+  branch_prefix:
+    description: 'Branch namespace to enumerate (e.g. "stable/" matches stable/vX.Y branches).'
+    required: false
+    default: 'stable/'
+  include_main:
+    description: 'If "true", append the "main" branch as the newest entry.'
+    required: false
+    default: 'false'
+outputs:
+  branches_json:
+    description: 'JSON array of branch names, newest last (e.g. ["stable/v1.37","stable/v1.38"]). Use with fromJSON() for matrix strategies.'
+    value: ${{ steps.get-branches.outputs.branches_json }}
+  branches:
+    description: 'Space-separated branch names, newest last (e.g. "stable/v1.37 stable/v1.38"). Convenient for shell for-loops.'
+    value: ${{ steps.get-branches.outputs.branches }}
+  latest:
+    description: 'The single newest version branch (e.g. stable/v1.38). Independent of include_main, so it always points at the highest release branch.'
+    value: ${{ steps.get-branches.outputs.latest }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Get latest branches
+      id: get-branches
+      shell: bash
+      # Inputs are passed via env (not interpolated into the script body) so that
+      # repository/branch_prefix/etc. cannot break out of the shell context.
+      env:
+        REPOSITORY: ${{ inputs.repository }}
+        COUNT: ${{ inputs.count }}
+        BRANCH_PREFIX: ${{ inputs.branch_prefix }}
+        INCLUDE_MAIN: ${{ inputs.include_main }}
+      run: |
+        set -euo pipefail
+
+        # Public repos work without auth for ls-remote, so no token is needed.
+        repo_url="https://github.com/${REPOSITORY}.git"
+
+        if ! [[ "${COUNT}" =~ ^[1-9][0-9]*$ ]]; then
+          echo "::error::Invalid count '${COUNT}': must be a positive integer"
+          exit 1
+        fi
+
+        echo "Fetching '${BRANCH_PREFIX}v*' branches from ${repo_url}..."
+
+        # Fetch matching heads first so a transport error (bad repo, network,
+        # auth) fails loudly here instead of being misreported as "no branches
+        # found" below.
+        raw_refs=$(git ls-remote --heads "${repo_url}" "${BRANCH_PREFIX}v*")
+
+        # Keep only "<prefix>vX.Y" heads. The prefix is stripped literally
+        # (parameter expansion, not a regex) so a caller-supplied prefix
+        # containing regex metacharacters cannot alter the match. Version-sort
+        # so the newest sort last. '|| true' keeps a non-matching final line
+        # from tripping pipefail; the empty-result case is handled below.
+        branches=$(printf '%s\n' "${raw_refs}" \
+          | sed 's#.*refs/heads/##' \
+          | while IFS= read -r ref; do
+              suffix=${ref#"${BRANCH_PREFIX}"}
+              [ "${suffix}" != "${ref}" ] || continue
+              [[ "${suffix}" =~ ^v[0-9]+\.[0-9]+$ ]] && printf '%s\n' "${ref}"
+            done \
+          | sort -V \
+          | tail -n "${COUNT}" || true)
+
+        if [ -z "${branches}" ]; then
+          echo "::error::No '${BRANCH_PREFIX}v*' version branches found in ${repo_url}"
+          exit 1
+        fi
+
+        # The newest stable branch is the highest version (last line). Capture it
+        # before optionally appending main so its meaning stays predictable.
+        latest=$(printf '%s\n' "${branches}" | tail -n 1)
+
+        # Accept any capitalisation of the boolean (true/True/TRUE).
+        if [ "${INCLUDE_MAIN,,}" = "true" ]; then
+          branches="$(printf '%s\nmain' "${branches}")"
+        fi
+
+        # branches_json: a compact JSON array for fromJSON() matrix consumption.
+        # branches: a space-separated string for shell for-loops.
+        branches_json=$(printf '%s\n' "${branches}" | jq -R . | jq -s -c .)
+        branches_oneline=$(printf '%s\n' "${branches}" | paste -sd' ' -)
+
+        {
+          echo "branches_json=${branches_json}"
+          echo "branches=${branches_oneline}"
+          echo "latest=${latest}"
+        } >> "${GITHUB_OUTPUT}"
+
+        echo "--- Results ---"
+        echo "branches_json: ${branches_json}"
+        echo "branches:      ${branches_oneline}"
+        echo "latest:        ${latest}"

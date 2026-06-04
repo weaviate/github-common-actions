@@ -240,3 +240,81 @@ jobs:
 - Always use the stop action in a cleanup step (with `if: always()`) to ensure logs are properly stopped
 - The docker-compose file must be accessible in the workspace when using Docker mode
 
+## get-latest-branches
+
+### Description
+Returns the latest N version branches (e.g. `stable/v1.38`) of a repository, ordered oldest → newest, with optional inclusion of the `main` branch. The primary output is a JSON array designed to feed a `matrix` strategy via `fromJSON()`.
+
+### Inputs
+- `repository` (optional): The GitHub repository (`owner/name`) to enumerate version branches from. Default: `weaviate/weaviate`.
+- `count` (optional): Number of most-recent version branches to return. Default: `3`.
+- `branch_prefix` (optional): Branch namespace to enumerate (e.g. `stable/` matches `stable/vX.Y` branches). Default: `stable/`.
+- `include_main` (optional): If `'true'`, append the `main` branch as the newest entry. Default: `'false'`.
+
+### Outputs
+- `branches_json`: JSON array of branch names, newest last (e.g. `["stable/v1.37","stable/v1.38"]`). Use with `fromJSON()` for matrix strategies.
+- `branches`: Space-separated branch names, newest last (e.g. `stable/v1.37 stable/v1.38`). Convenient for shell `for`-loops.
+- `latest`: The single newest version branch (e.g. `stable/v1.38`). Independent of `include_main`, so it always points at the highest release branch.
+
+### Usage
+
+#### Matrix strategy (primary use case)
+```yaml
+name: Test Across Latest Weaviate Branches
+on: [push]
+
+jobs:
+  resolve-branches:
+    runs-on: ubuntu-latest
+    outputs:
+      branches_json: ${{ steps.branches.outputs.branches_json }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get latest branches
+        id: branches
+        uses: weaviate/github-common-actions/.github/actions/get-latest-branches@main
+        with:
+          count: '3'
+          include_main: 'true'
+
+  test:
+    needs: resolve-branches
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ${{ fromJSON(needs.resolve-branches.outputs.branches_json) }}
+    steps:
+      - name: Show branch
+        run: echo "Testing against ${{ matrix.branch }}"
+```
+
+#### Shell loop
+```yaml
+      - name: Get latest branches
+        id: branches
+        uses: weaviate/github-common-actions/.github/actions/get-latest-branches@main
+        with:
+          count: '5'
+
+      - name: Iterate
+        run: |
+          for branch in ${{ steps.branches.outputs.branches }}; do
+            echo "Branch: ${branch}"
+          done
+          echo "Latest: ${{ steps.branches.outputs.latest }}"
+```
+
+### Examples
+- `count: '3'` against `weaviate/weaviate` → `["stable/v1.36","stable/v1.37","stable/v1.38"]`
+- `count: '3'` with `include_main: 'true'` → `["stable/v1.36","stable/v1.37","stable/v1.38","main"]`
+- `count: '1'` → `["stable/v1.38"]`
+
+### Behavior
+- Uses `git ls-remote` against the public repository — no token required.
+- Branches are version-sorted (`sort -V`), so `stable/v1.9` correctly precedes `stable/v1.10`, and the newest branches are kept.
+- `main` (when `include_main: 'true'`) is always appended last, since it is ahead of every release branch.
+- The action fails (exit 1) if `count` is not a positive integer, or if no matching version branches are found — preventing a silently empty matrix.
+
