@@ -330,7 +330,7 @@ Pairs with [`get-latest-branches`](#get-latest-branches): use that to list the b
 - `repository` (optional): GitHub repository (`owner/name`) whose commits and `openapi-specs/schema.json` are read. Default: `weaviate/weaviate`.
 - `registry` (optional): Docker Hub repository (`namespace/name`) whose tags are checked. Default: `semitechnologies/weaviate`.
 - `gh_token` (optional): GitHub token for the commits API (avoids rate limits). Recommended. Default: `''`.
-- `max_depth` (optional): How many commits back from the branch tip to search before failing. Default: `30`.
+- `max_depth` (optional): How many commits back from the branch tip to search before failing. Must be `1`-`100` (the GitHub commits API caps a page at 100). Default: `30`.
 
 ### Outputs
 - `docker_tag`: Latest available multi-arch semver tag, e.g. `1.38.0-rc.1-8269596`.
@@ -402,6 +402,6 @@ jobs:
 ### Behavior
 - Walks the branch's commit history newest-first; for each commit it reads `<version>` from `openapi-specs/schema.json` at that commit and checks whether `semitechnologies/weaviate:<version>-<short-sha>` exists in the registry, returning the first one that does.
 - Uses the registry's **exact-tag** endpoint (reliable) rather than tag listings (which time out for common prefixes), and anchors to the branch's own commits so the result is branch-precise (the bare semver tag alone collides across branches that share a version).
-- Fails (exit 1) if `max_depth` is not a positive integer, if the branch does not exist, or if no published image is found within `max_depth` commits.
+- Fails (exit 1) if `max_depth` is not an integer between 1 and 100, if the branch is empty or does not exist, or if no published image is found within `max_depth` commits.
 - No Docker auth is required (public repo); a `gh_token` is recommended only to avoid GitHub commits-API rate limits.
 

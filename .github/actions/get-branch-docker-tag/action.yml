@@ -17,7 +17,7 @@ inputs:
     required: false
     default: ''
   max_depth:
-    description: 'How many commits back (from the branch tip) to search for a published image before failing.'
+    description: 'How many commits back (from the branch tip) to search for a published image before failing. Must be 1-100 (the GitHub commits API caps a page at 100).'
     required: false
     default: '30'
 outputs:
@@ -56,8 +56,10 @@ runs:
       run: |
         set -euo pipefail
 
-        if ! [[ "${MAX_DEPTH}" =~ ^[1-9][0-9]*$ ]]; then
-          echo "::error::Invalid max_depth '${MAX_DEPTH}': must be a positive integer"
+        # The GitHub commits API caps per_page at 100, so a larger max_depth
+        # would silently search fewer commits than requested — reject it instead.
+        if ! [[ "${MAX_DEPTH}" =~ ^[1-9][0-9]*$ ]] || [ "${MAX_DEPTH}" -gt 100 ]; then
+          echo "::error::Invalid max_depth '${MAX_DEPTH}': must be an integer between 1 and 100"
           exit 1
         fi
         if [ -z "${BRANCH}" ]; then
@@ -69,6 +71,13 @@ runs:
         RAW="https://raw.githubusercontent.com/${REPOSITORY}"
         HUB="https://hub.docker.com/v2/repositories/${REGISTRY}/tags"
         branch="${BRANCH#refs/heads/}"
+        # Re-check after stripping: an input like "refs/heads/" collapses to empty,
+        # and an empty sha would make the commits API fall back to the default
+        # branch and silently resolve the wrong image.
+        if [ -z "${branch}" ]; then
+          echo "::error::branch '${BRANCH}' resolves to an empty ref after stripping 'refs/heads/'"
+          exit 1
+        fi
 
         echo "Resolving latest available multi-arch image for '${branch}' (repo ${REPOSITORY}, registry ${REGISTRY}, max_depth ${MAX_DEPTH})..."
 
@@ -83,7 +92,7 @@ runs:
         #     tag alone collides across branches sharing a version).
 
         # Recent commits on the branch, newest first.
-        gh_curl=(curl -fsS --retry 3 --retry-delay 2 -H "Accept: application/vnd.github+json")
+        gh_curl=(curl -fsS --retry 3 --retry-delay 2 --max-time 30 -H "Accept: application/vnd.github+json")
         if [ -n "${GH_TOKEN}" ]; then
           gh_curl+=(-H "Authorization: Bearer ${GH_TOKEN}")
         fi
