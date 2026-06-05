@@ -1,0 +1,254 @@
+name: Test Get Latest Branches Action
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - '.github/actions/get-latest-branches/**'
+      - '.github/workflows/get-latest-branches-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  # Default inputs: weaviate/weaviate, count=3, branch_prefix=stable/, include_main=false.
+  # Assertions are structural (not hardcoded versions) so the test stays green as
+  # new stable branches are cut.
+  defaults:
+    name: "Defaults (count=3)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get latest branches
+        id: run
+        uses: ./.github/actions/get-latest-branches
+
+      - name: Verify outputs
+        run: |
+          set -euo pipefail
+          JSON='${{ steps.run.outputs.branches_json }}'
+          BRANCHES='${{ steps.run.outputs.branches }}'
+          LATEST='${{ steps.run.outputs.latest }}'
+
+          echo "branches_json: ${JSON}"
+          echo "branches:      ${BRANCHES}"
+          echo "latest:        ${LATEST}"
+
+          # Must be a JSON array of exactly 3 entries.
+          echo "${JSON}" | jq -e 'type == "array"' >/dev/null \
+            || { echo "branches_json is not a JSON array: ${JSON}"; exit 1; }
+          LEN=$(echo "${JSON}" | jq 'length')
+          if [ "${LEN}" -ne 3 ]; then
+            echo "Expected 3 branches, got ${LEN}: ${JSON}"; exit 1
+          fi
+
+          mapfile -t ARR < <(echo "${JSON}" | jq -r '.[]')
+
+          # Every entry is a full stable/vX.Y branch name.
+          for b in "${ARR[@]}"; do
+            if ! [[ "${b}" =~ ^stable/v[0-9]+\.[0-9]+$ ]]; then
+              echo "Branch '${b}' does not match ^stable/v[0-9]+\.[0-9]+$"; exit 1
+            fi
+          done
+
+          # Entries are in ascending version order (newest last).
+          SORTED=$(printf '%s\n' "${ARR[@]}" | sort -V)
+          ORIG=$(printf '%s\n' "${ARR[@]}")
+          if [ "${SORTED}" != "${ORIG}" ]; then
+            echo "Branches not in ascending version order: ${JSON}"; exit 1
+          fi
+
+          # latest equals the last (newest) element and is a stable branch.
+          if [ "${LATEST}" != "${ARR[-1]}" ]; then
+            echo "latest (${LATEST}) != last element (${ARR[-1]})"; exit 1
+          fi
+          if ! [[ "${LATEST}" =~ ^stable/v[0-9]+\.[0-9]+$ ]]; then
+            echo "latest is not a stable branch: ${LATEST}"; exit 1
+          fi
+
+          # The space-separated output is consistent with the JSON array.
+          JOINED=$(echo "${JSON}" | jq -r 'join(" ")')
+          if [ "${BRANCHES}" != "${JOINED}" ]; then
+            echo "branches ('${BRANCHES}') != JSON join ('${JOINED}')"; exit 1
+          fi
+
+  # count=1 must return a single-element array equal to latest.
+  count-one:
+    name: "count=1"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get latest branch
+        id: run
+        uses: ./.github/actions/get-latest-branches
+        with:
+          count: '1'
+
+      - name: Verify outputs
+        run: |
+          set -euo pipefail
+          JSON='${{ steps.run.outputs.branches_json }}'
+          LATEST='${{ steps.run.outputs.latest }}'
+
+          LEN=$(echo "${JSON}" | jq 'length')
+          if [ "${LEN}" -ne 1 ]; then
+            echo "Expected 1 branch, got ${LEN}: ${JSON}"; exit 1
+          fi
+          ONLY=$(echo "${JSON}" | jq -r '.[0]')
+          if [ "${ONLY}" != "${LATEST}" ]; then
+            echo "Single element (${ONLY}) != latest (${LATEST})"; exit 1
+          fi
+          if ! [[ "${ONLY}" =~ ^stable/v[0-9]+\.[0-9]+$ ]]; then
+            echo "Branch '${ONLY}' does not match stable pattern"; exit 1
+          fi
+
+  # A larger custom count must return exactly that many entries.
+  custom-count:
+    name: "count=5"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get latest branches
+        id: run
+        uses: ./.github/actions/get-latest-branches
+        with:
+          count: '5'
+
+      - name: Verify outputs
+        run: |
+          set -euo pipefail
+          JSON='${{ steps.run.outputs.branches_json }}'
+
+          LEN=$(echo "${JSON}" | jq 'length')
+          if [ "${LEN}" -ne 5 ]; then
+            echo "Expected 5 branches, got ${LEN}: ${JSON}"; exit 1
+          fi
+
+          mapfile -t ARR < <(echo "${JSON}" | jq -r '.[]')
+          for b in "${ARR[@]}"; do
+            if ! [[ "${b}" =~ ^stable/v[0-9]+\.[0-9]+$ ]]; then
+              echo "Branch '${b}' does not match stable pattern"; exit 1
+            fi
+          done
+          SORTED=$(printf '%s\n' "${ARR[@]}" | sort -V)
+          ORIG=$(printf '%s\n' "${ARR[@]}")
+          if [ "${SORTED}" != "${ORIG}" ]; then
+            echo "Branches not in ascending version order: ${JSON}"; exit 1
+          fi
+
+  # include_main=true must append 'main' as the last (newest) entry, grow the
+  # length by 1, and leave 'latest' pointing at the newest stable branch.
+  include-main:
+    name: "include_main=true"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get latest branches plus main
+        id: run
+        uses: ./.github/actions/get-latest-branches
+        with:
+          count: '3'
+          include_main: 'true'
+
+      - name: Verify outputs
+        run: |
+          set -euo pipefail
+          JSON='${{ steps.run.outputs.branches_json }}'
+          LATEST='${{ steps.run.outputs.latest }}'
+
+          echo "branches_json: ${JSON}"
+
+          # 3 stable branches + main.
+          LEN=$(echo "${JSON}" | jq 'length')
+          if [ "${LEN}" -ne 4 ]; then
+            echo "Expected 4 entries (3 stable + main), got ${LEN}: ${JSON}"; exit 1
+          fi
+
+          # main is appended last.
+          LAST=$(echo "${JSON}" | jq -r '.[-1]')
+          if [ "${LAST}" != "main" ]; then
+            echo "Expected last element 'main', got '${LAST}'"; exit 1
+          fi
+
+          # Everything before main is an ascending run of stable branches.
+          mapfile -t STABLE < <(echo "${JSON}" | jq -r '.[:-1][]')
+          for b in "${STABLE[@]}"; do
+            if ! [[ "${b}" =~ ^stable/v[0-9]+\.[0-9]+$ ]]; then
+              echo "Non-stable entry before main: '${b}'"; exit 1
+            fi
+          done
+          SORTED=$(printf '%s\n' "${STABLE[@]}" | sort -V)
+          ORIG=$(printf '%s\n' "${STABLE[@]}")
+          if [ "${SORTED}" != "${ORIG}" ]; then
+            echo "Stable entries not in ascending order: ${JSON}"; exit 1
+          fi
+
+          # latest stays a stable branch — never 'main'.
+          if [ "${LATEST}" = "main" ]; then
+            echo "latest should not be main"; exit 1
+          fi
+          if ! [[ "${LATEST}" =~ ^stable/v[0-9]+\.[0-9]+$ ]]; then
+            echo "latest is not a stable branch: ${LATEST}"; exit 1
+          fi
+
+  # An invalid count must fail the action (not silently produce an empty matrix).
+  invalid-count:
+    name: "Invalid count fails"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get latest branches (invalid count)
+        id: run
+        continue-on-error: true
+        uses: ./.github/actions/get-latest-branches
+        with:
+          count: '0'
+
+      - name: Verify the action failed
+        run: |
+          if [ "${{ steps.run.outcome }}" != "failure" ]; then
+            echo "Expected action to fail for count=0, outcome=${{ steps.run.outcome }}"; exit 1
+          fi
+
+  # End-to-end proof that the JSON output drives a matrix via fromJSON().
+  matrix-source:
+    name: "Matrix source"
+    runs-on: ubuntu-latest
+    outputs:
+      branches_json: ${{ steps.run.outputs.branches_json }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get latest branches plus main
+        id: run
+        uses: ./.github/actions/get-latest-branches
+        with:
+          count: '2'
+          include_main: 'true'
+
+  matrix-consume:
+    name: "Matrix consume"
+    needs: matrix-source
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ${{ fromJSON(needs.matrix-source.outputs.branches_json) }}
+    steps:
+      - name: Verify matrix value
+        run: |
+          set -euo pipefail
+          B='${{ matrix.branch }}'
+          echo "Matrix branch: ${B}"
+          if [ -z "${B}" ]; then
+            echo "Empty matrix branch"; exit 1
+          fi
+          if ! [[ "${B}" =~ ^(stable/v[0-9]+\.[0-9]+|main)$ ]]; then
+            echo "Unexpected matrix branch: ${B}"; exit 1
+          fi
