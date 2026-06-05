@@ -66,6 +66,16 @@ runs:
           echo "::error::branch must not be empty"
           exit 1
         fi
+        # Empty repository/registry would build invalid API/registry URLs and
+        # surface as a misleading "does the branch exist?" error.
+        if [ -z "${REPOSITORY}" ]; then
+          echo "::error::repository must not be empty"
+          exit 1
+        fi
+        if [ -z "${REGISTRY}" ]; then
+          echo "::error::registry must not be empty"
+          exit 1
+        fi
 
         GH_API="https://api.github.com/repos/${REPOSITORY}"
         RAW="https://raw.githubusercontent.com/${REPOSITORY}"
@@ -136,13 +146,20 @@ runs:
             idx=$((idx + 1)); continue
           fi
           candidate="${ver}-${short}"
-          # '|| true' so a transient non-200 (incl. curl exit on connection error)
-          # doesn't trip set -e; we only act on an explicit 200.
-          code=$(curl -s --retry 3 --retry-delay 2 -o /dev/null -w "%{http_code}" --max-time 30 "${HUB}/${candidate}" || true)
+          # --retry-all-errors also retries connection failures (000); '|| true'
+          # keeps a hard curl failure from tripping set -e (code stays 000 then).
+          code=$(curl -s --retry 3 --retry-delay 2 --retry-all-errors -o /dev/null -w "%{http_code}" --max-time 30 "${HUB}/${candidate}" || true)
           echo "  [${idx}] ${short} -> ${candidate} : ${code}"
           if [ "${code}" = "200" ]; then
             docker_tag="${candidate}"; version="${ver}"; sha="${short}"; commit="${full}"; commits_behind="${idx}"
             break
+          elif [ "${code}" != "404" ]; then
+            # Only a definitive 404 means "not built". An ambiguous response
+            # (5xx/429/000/...) for a tag that may well exist must not be treated
+            # as missing — that would silently fall back to an older image and
+            # return a non-latest result. Fail closed instead.
+            echo "::error::Docker Hub returned HTTP ${code} for tag '${candidate}'; cannot reliably determine availability (refusing to silently fall back to an older image)"
+            exit 1
           fi
           idx=$((idx + 1))
         done
