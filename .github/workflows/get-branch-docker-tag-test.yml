@@ -65,7 +65,7 @@ jobs:
             echo "commits_behind=0 but is_fallback=${FB}"; exit 1
           fi
           # CORE GUARANTEE: the resolved tag is actually pullable from the registry.
-          CODE=$(curl -s --retry 3 --retry-delay 2 --max-time 30 -o /dev/null -w "%{http_code}" \
+          CODE=$(curl -s --retry 3 --retry-delay 2 --retry-all-errors --max-time 30 -o /dev/null -w "%{http_code}" \
             "https://hub.docker.com/v2/repositories/semitechnologies/weaviate/tags/${TAG}" || true)
           if [ "${CODE}" != "200" ]; then
             echo "docker_tag '${TAG}' is not available in the registry (HTTP ${CODE})"; exit 1
@@ -101,7 +101,7 @@ jobs:
           if ! [[ "${VER}" =~ ^1\.36\.[0-9]+$ ]]; then
             echo "version '${VER}' is not 1.36.x"; exit 1
           fi
-          CODE=$(curl -s --retry 3 --retry-delay 2 --max-time 30 -o /dev/null -w "%{http_code}" \
+          CODE=$(curl -s --retry 3 --retry-delay 2 --retry-all-errors --max-time 30 -o /dev/null -w "%{http_code}" \
             "https://hub.docker.com/v2/repositories/semitechnologies/weaviate/tags/${TAG}" || true)
           if [ "${CODE}" != "200" ]; then
             echo "docker_tag '${TAG}' is not available in the registry (HTTP ${CODE})"; exit 1

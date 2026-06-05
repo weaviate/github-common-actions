@@ -101,16 +101,24 @@ runs:
         #     the branch's own commits also keeps the result branch-precise (the semver
         #     tag alone collides across branches sharing a version).
 
-        # Recent commits on the branch, newest first.
+        # Recent commits on the branch, newest first. URL-encode the ref so a
+        # branch name containing query-significant characters (&, =, ...) cannot
+        # alter the request.
+        branch_enc=$(jq -rn --arg b "${branch}" '$b|@uri')
         gh_curl=(curl -fsS --retry 3 --retry-delay 2 --max-time 30 -H "Accept: application/vnd.github+json")
         if [ -n "${GH_TOKEN}" ]; then
           gh_curl+=(-H "Authorization: Bearer ${GH_TOKEN}")
         fi
-        if ! commits_json=$("${gh_curl[@]}" "${GH_API}/commits?sha=${branch}&per_page=${MAX_DEPTH}"); then
-          echo "::error::Failed to list commits for branch '${branch}' in ${REPOSITORY} (does the branch exist?)"
+        if ! commits_json=$("${gh_curl[@]}" "${GH_API}/commits?sha=${branch_enc}&per_page=${MAX_DEPTH}"); then
+          echo "::error::Failed to list commits for branch '${branch}' in ${REPOSITORY} (check the branch exists, the repository is correct, and the token/rate limit)"
           exit 1
         fi
-        mapfile -t shas < <(printf '%s' "${commits_json}" | jq -r '.[].sha')
+        # Read SHAs into an array without mapfile (Bash 4+) to stay portable to
+        # the Bash 3.2 shipped on macOS runners.
+        shas=()
+        while IFS= read -r sha_line; do
+          shas+=("${sha_line}")
+        done < <(printf '%s' "${commits_json}" | jq -r '.[].sha')
         if [ "${#shas[@]}" -eq 0 ]; then
           echo "::error::No commits found for branch '${branch}' in ${REPOSITORY}"
           exit 1
