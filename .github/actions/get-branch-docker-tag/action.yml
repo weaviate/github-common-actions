@@ -142,9 +142,26 @@ runs:
         idx=0
         for full in "${shas[@]}"; do
           short="${full:0:7}"
-          # The version this commit was (or would be) built with.
-          if ! ver=$(curl -fsSL --retry 3 --retry-delay 2 --max-time 30 "${RAW}/${full}/openapi-specs/schema.json" | jq -r '.info.version // empty') || [ -z "${ver}" ]; then
-            echo "  [${idx}] ${short} : no schema.json/version, skipping"
+          # The version this commit was (or would be) built with. Capture the
+          # HTTP status so a transient fetch failure (5xx/000/timeout, after
+          # retries) is not mistaken for "no schema.json" and silently skipped —
+          # that could return a stale, non-latest tag. Only a definitive 404
+          # means the file is genuinely absent at this commit; anything else
+          # fails closed. '|| true' keeps a hard curl failure from tripping set -e.
+          resp=$(curl -s --retry 3 --retry-delay 2 --retry-all-errors --max-time 30 -w $'\n%{http_code}' "${RAW}/${full}/openapi-specs/schema.json" || true)
+          schema_code="${resp##*$'\n'}"
+          schema_body="${resp%$'\n'*}"
+          if [ "${schema_code}" = "404" ]; then
+            echo "  [${idx}] ${short} : no schema.json (404), skipping"
+            idx=$((idx + 1)); continue
+          fi
+          if [ "${schema_code}" != "200" ]; then
+            echo "::error::Failed to fetch schema.json for ${short} (HTTP ${schema_code}); cannot reliably determine the version (refusing to skip and risk returning a stale tag)"
+            exit 1
+          fi
+          ver=$(printf '%s' "${schema_body}" | jq -r '.info.version // empty')
+          if [ -z "${ver}" ]; then
+            echo "  [${idx}] ${short} : schema.json has no version, skipping"
             idx=$((idx + 1)); continue
           fi
           mm=$(printf '%s' "${ver}" | grep -oE '^[0-9]+\.[0-9]+' || true)
