@@ -55,14 +55,17 @@ runs:
 
         # Fetch matching heads first so a transport error (bad repo, network,
         # auth) fails loudly here instead of being misreported as "no branches
-        # found" below.
-        raw_refs=$(git ls-remote --heads "${repo_url}" "${BRANCH_PREFIX}v*")
+        # found" below. Version ordering is done by git (--sort='v:refname'),
+        # which is portable — unlike `sort -V`, which is GNU-coreutils-only and
+        # absent on macOS/BSD runners.
+        raw_refs=$(git -c 'versionsort.suffix=-' ls-remote --heads --sort='v:refname' "${repo_url}" "${BRANCH_PREFIX}v*")
 
-        # Keep only "<prefix>vX.Y" heads. The prefix is stripped literally
-        # (parameter expansion, not a regex) so a caller-supplied prefix
-        # containing regex metacharacters cannot alter the match. Version-sort
-        # so the newest sort last. '|| true' keeps a non-matching final line
-        # from tripping pipefail; the empty-result case is handled below.
+        # Keep only "<prefix>vX.Y" heads, preserving git's version order (newest
+        # last). The prefix is stripped literally: the double quotes around
+        # "${BRANCH_PREFIX}" force literal (non-glob) matching, so a caller
+        # prefix containing glob metacharacters cannot alter the match. '|| true'
+        # keeps a non-matching final line from tripping pipefail; the
+        # empty-result case is handled below.
         branches=$(printf '%s\n' "${raw_refs}" \
           | sed 's#.*refs/heads/##' \
           | while IFS= read -r ref; do
@@ -70,7 +73,6 @@ runs:
               [ "${suffix}" != "${ref}" ] || continue
               [[ "${suffix}" =~ ^v[0-9]+\.[0-9]+$ ]] && printf '%s\n' "${ref}"
             done \
-          | sort -V \
           | tail -n "${COUNT}" || true)
 
         if [ -z "${branches}" ]; then
@@ -82,8 +84,11 @@ runs:
         # before optionally appending main so its meaning stays predictable.
         latest=$(printf '%s\n' "${branches}" | tail -n 1)
 
-        # Accept any capitalisation of the boolean (true/True/TRUE).
-        if [ "${INCLUDE_MAIN,,}" = "true" ]; then
+        # Accept any capitalisation of the boolean (true/True/TRUE). Use tr
+        # rather than ${INCLUDE_MAIN,,} (Bash 4+ only) to stay portable to the
+        # Bash 3.2 shipped on macOS runners.
+        include_main_lc=$(printf '%s' "${INCLUDE_MAIN}" | tr '[:upper:]' '[:lower:]')
+        if [ "${include_main_lc}" = "true" ]; then
           branches="$(printf '%s\nmain' "${branches}")"
         fi
 
