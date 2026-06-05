@@ -314,7 +314,7 @@ jobs:
 
 ### Behavior
 - Uses `git ls-remote` against the public repository — no token required.
-- Branches are version-sorted (`sort -V`), so `stable/v1.9` correctly precedes `stable/v1.10`, and the newest branches are kept.
+- Branches are version-sorted by git (`ls-remote --sort='v:refname'`), so `stable/v1.9` correctly precedes `stable/v1.10`, and the newest branches are kept. Using git's sort avoids depending on GNU `sort -V`, which is unavailable on macOS/BSD runners.
 - `main` (when `include_main: 'true'`) is always appended last, since it is ahead of every release branch.
 - The action fails (exit 1) if `count` is not a positive integer, or if no matching version branches are found — preventing a silently empty matrix.
 
