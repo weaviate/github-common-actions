@@ -1,0 +1,147 @@
+name: get-branch-docker-tag
+description: 'Resolves a Weaviate git branch (main or stable/vX.Y) to the latest AVAILABLE multi-arch Docker tag (e.g. 1.38.0-rc.1-8269596) published to Docker Hub, walking back the branch history when the newest commit has no image yet.'
+inputs:
+  branch:
+    description: 'Git branch to resolve, e.g. "main" or "stable/v1.38" (as emitted by get-latest-branches). A leading "refs/heads/" is stripped.'
+    required: true
+  repository:
+    description: 'GitHub repository (owner/name) whose commits and openapi-specs/schema.json are read.'
+    required: false
+    default: 'weaviate/weaviate'
+  registry:
+    description: 'Docker Hub repository (namespace/name) whose tags are checked for availability.'
+    required: false
+    default: 'semitechnologies/weaviate'
+  gh_token:
+    description: 'GitHub token for the commits API (avoids rate limits). Optional but recommended.'
+    required: false
+    default: ''
+  max_depth:
+    description: 'How many commits back (from the branch tip) to search for a published image before failing.'
+    required: false
+    default: '30'
+outputs:
+  docker_tag:
+    description: 'Latest available multi-arch semver tag for the branch, e.g. 1.38.0-rc.1-8269596.'
+    value: ${{ steps.resolve.outputs.docker_tag }}
+  version:
+    description: 'The Weaviate version part of the tag, e.g. 1.38.0-rc.1.'
+    value: ${{ steps.resolve.outputs.version }}
+  sha:
+    description: '7-char short commit the image was built from, e.g. 8269596.'
+    value: ${{ steps.resolve.outputs.sha }}
+  commit:
+    description: 'Full 40-char commit SHA the image was built from.'
+    value: ${{ steps.resolve.outputs.commit }}
+  is_fallback:
+    description: '"true" if the branch tip had no published image and an older commit was used, otherwise "false".'
+    value: ${{ steps.resolve.outputs.is_fallback }}
+  commits_behind:
+    description: 'How many commits behind the branch tip the resolved image is (0 = the tip itself).'
+    value: ${{ steps.resolve.outputs.commits_behind }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Resolve latest available Docker tag for branch
+      id: resolve
+      shell: bash
+      # Inputs are passed via env (not interpolated into the script body) so that
+      # branch/repository/registry values cannot break out of the shell context.
+      env:
+        BRANCH: ${{ inputs.branch }}
+        REPOSITORY: ${{ inputs.repository }}
+        REGISTRY: ${{ inputs.registry }}
+        GH_TOKEN: ${{ inputs.gh_token }}
+        MAX_DEPTH: ${{ inputs.max_depth }}
+      run: |
+        set -euo pipefail
+
+        if ! [[ "${MAX_DEPTH}" =~ ^[1-9][0-9]*$ ]]; then
+          echo "::error::Invalid max_depth '${MAX_DEPTH}': must be a positive integer"
+          exit 1
+        fi
+        if [ -z "${BRANCH}" ]; then
+          echo "::error::branch must not be empty"
+          exit 1
+        fi
+
+        GH_API="https://api.github.com/repos/${REPOSITORY}"
+        RAW="https://raw.githubusercontent.com/${REPOSITORY}"
+        HUB="https://hub.docker.com/v2/repositories/${REGISTRY}/tags"
+        branch="${BRANCH#refs/heads/}"
+
+        echo "Resolving latest available multi-arch image for '${branch}' (repo ${REPOSITORY}, registry ${REGISTRY}, max_depth ${MAX_DEPTH})..."
+
+        # Why git-anchored exact-tag checks (not Docker Hub tag listings):
+        #   * push_docker.sh publishes a multi-arch tag "<version>-<short-sha>" on every
+        #     merge/PR build; <version> comes from openapi-specs/schema.json at that commit.
+        #   * Only some commits are built, so the newest AVAILABLE image is often a few
+        #     commits behind the branch tip — hence the walk.
+        #   * Docker Hub's /tags?name= listing endpoint is slow/unreliable for common
+        #     prefixes (504/timeout); the exact /tags/<tag> endpoint is reliable. Walking
+        #     the branch's own commits also keeps the result branch-precise (the semver
+        #     tag alone collides across branches sharing a version).
+
+        # Recent commits on the branch, newest first.
+        gh_curl=(curl -fsS --retry 3 --retry-delay 2 -H "Accept: application/vnd.github+json")
+        if [ -n "${GH_TOKEN}" ]; then
+          gh_curl+=(-H "Authorization: Bearer ${GH_TOKEN}")
+        fi
+        if ! commits_json=$("${gh_curl[@]}" "${GH_API}/commits?sha=${branch}&per_page=${MAX_DEPTH}"); then
+          echo "::error::Failed to list commits for branch '${branch}' in ${REPOSITORY} (does the branch exist?)"
+          exit 1
+        fi
+        mapfile -t shas < <(printf '%s' "${commits_json}" | jq -r '.[].sha')
+        if [ "${#shas[@]}" -eq 0 ]; then
+          echo "::error::No commits found for branch '${branch}' in ${REPOSITORY}"
+          exit 1
+        fi
+
+        # Walk newest-first: first commit with a published multi-arch semver tag wins.
+        docker_tag=""; version=""; sha=""; commit=""; commits_behind=""
+        idx=0
+        for full in "${shas[@]}"; do
+          short="${full:0:7}"
+          # The version this commit was (or would be) built with.
+          if ! ver=$(curl -fsSL --retry 3 --retry-delay 2 --max-time 30 "${RAW}/${full}/openapi-specs/schema.json" | jq -r '.info.version // empty') || [ -z "${ver}" ]; then
+            echo "  [${idx}] ${short} : no schema.json/version, skipping"
+            idx=$((idx + 1)); continue
+          fi
+          candidate="${ver}-${short}"
+          # '|| true' so a transient non-200 (incl. curl exit on connection error)
+          # doesn't trip set -e; we only act on an explicit 200.
+          code=$(curl -s --retry 3 --retry-delay 2 -o /dev/null -w "%{http_code}" --max-time 30 "${HUB}/${candidate}" || true)
+          echo "  [${idx}] ${short} -> ${candidate} : ${code}"
+          if [ "${code}" = "200" ]; then
+            docker_tag="${candidate}"; version="${ver}"; sha="${short}"; commit="${full}"; commits_behind="${idx}"
+            break
+          fi
+          idx=$((idx + 1))
+        done
+
+        if [ -z "${docker_tag}" ]; then
+          echo "::error::No published multi-arch image found for branch '${branch}' within the last ${MAX_DEPTH} commits in ${REGISTRY}"
+          exit 1
+        fi
+
+        is_fallback=false
+        if [ "${commits_behind}" -gt 0 ]; then
+          is_fallback=true
+        fi
+
+        {
+          echo "docker_tag=${docker_tag}"
+          echo "version=${version}"
+          echo "sha=${sha}"
+          echo "commit=${commit}"
+          echo "is_fallback=${is_fallback}"
+          echo "commits_behind=${commits_behind}"
+        } >> "${GITHUB_OUTPUT}"
+
+        echo "--- Results ---"
+        echo "docker_tag:     ${docker_tag}"
+        echo "version:        ${version}"
+        echo "sha:            ${sha}"
+        echo "commit:         ${commit}"
+        echo "is_fallback:    ${is_fallback}"
+        echo "commits_behind: ${commits_behind}"

@@ -318,3 +318,90 @@ jobs:
 - `main` (when `include_main: 'true'`) is always appended last, since it is ahead of every release branch.
 - The action fails (exit 1) if `count` is not a positive integer, or if no matching version branches are found — preventing a silently empty matrix.
 
+## get-branch-docker-tag
+
+### Description
+Resolves a Weaviate git branch (`main` or `stable/vX.Y`) to the **latest available** multi-arch Docker tag published to Docker Hub (e.g. `1.38.0-rc.1-8269596`). Weaviate's CI publishes a multi-arch tag `<version>-<short-sha>` for built commits only, so the newest commit on a branch frequently has no image yet — this action walks back the branch history and returns the most recent commit that *does* have a published image, guaranteeing the returned tag is pullable.
+
+Pairs with [`get-latest-branches`](#get-latest-branches): use that to list the branches, then this to resolve each branch to its newest image.
+
+### Inputs
+- `branch` (required): Git branch to resolve, e.g. `main` or `stable/v1.38` (as emitted by `get-latest-branches`). A leading `refs/heads/` is stripped.
+- `repository` (optional): GitHub repository (`owner/name`) whose commits and `openapi-specs/schema.json` are read. Default: `weaviate/weaviate`.
+- `registry` (optional): Docker Hub repository (`namespace/name`) whose tags are checked. Default: `semitechnologies/weaviate`.
+- `gh_token` (optional): GitHub token for the commits API (avoids rate limits). Recommended. Default: `''`.
+- `max_depth` (optional): How many commits back from the branch tip to search before failing. Default: `30`.
+
+### Outputs
+- `docker_tag`: Latest available multi-arch semver tag, e.g. `1.38.0-rc.1-8269596`.
+- `version`: The version part of the tag, e.g. `1.38.0-rc.1`.
+- `sha`: 7-char short commit the image was built from, e.g. `8269596`.
+- `commit`: Full 40-char commit SHA the image was built from.
+- `is_fallback`: `'true'` if the branch tip had no published image and an older commit was used, otherwise `'false'`.
+- `commits_behind`: How many commits behind the branch tip the resolved image is (`0` = the tip itself).
+
+### Usage
+
+#### Single branch
+```yaml
+name: Resolve Latest Image
+on: [push]
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve latest image for main
+        id: tag
+        uses: weaviate/github-common-actions/.github/actions/get-branch-docker-tag@main
+        with:
+          branch: main
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull it
+        run: |
+          echo "Pulling semitechnologies/weaviate:${{ steps.tag.outputs.docker_tag }}"
+          docker pull "semitechnologies/weaviate:${{ steps.tag.outputs.docker_tag }}"
+```
+
+#### Composed with `get-latest-branches` (matrix over the newest branches)
+```yaml
+jobs:
+  branches:
+    runs-on: ubuntu-latest
+    outputs:
+      branches_json: ${{ steps.b.outputs.branches_json }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: b
+        uses: weaviate/github-common-actions/.github/actions/get-latest-branches@main
+        with:
+          count: '3'
+          include_main: 'true'
+
+  resolve:
+    needs: branches
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ${{ fromJSON(needs.branches.outputs.branches_json) }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: tag
+        uses: weaviate/github-common-actions/.github/actions/get-branch-docker-tag@main
+        with:
+          branch: ${{ matrix.branch }}
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+      - run: echo "${{ matrix.branch }} -> ${{ steps.tag.outputs.docker_tag }} (behind ${{ steps.tag.outputs.commits_behind }})"
+```
+
+### Behavior
+- Walks the branch's commit history newest-first; for each commit it reads `<version>` from `openapi-specs/schema.json` at that commit and checks whether `semitechnologies/weaviate:<version>-<short-sha>` exists in the registry, returning the first one that does.
+- Uses the registry's **exact-tag** endpoint (reliable) rather than tag listings (which time out for common prefixes), and anchors to the branch's own commits so the result is branch-precise (the bare semver tag alone collides across branches that share a version).
+- Fails (exit 1) if `max_depth` is not a positive integer, if the branch does not exist, or if no published image is found within `max_depth` commits.
+- No Docker auth is required (public repo); a `gh_token` is recommended only to avoid GitHub commits-API rate limits.
+
