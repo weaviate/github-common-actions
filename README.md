@@ -401,6 +401,7 @@ jobs:
 
 ### Behavior
 - Walks the branch's commit history newest-first; for each commit it reads `<version>` from `openapi-specs/schema.json` at that commit and checks whether `semitechnologies/weaviate:<version>-<short-sha>` exists in the registry, returning the first one that does.
+- Only commits on the branch's own version line are considered (for `stable/vX.Y`, the `X.Y` line; for `main`/other, the tip's major.minor); off-line ancestor commits are skipped so a fallback can't return e.g. a `1.35.x` image for `stable/v1.36`.
 - Uses the registry's **exact-tag** endpoint (reliable) rather than tag listings (which time out for common prefixes), and anchors to the branch's own commits so the result is branch-precise (the bare semver tag alone collides across branches that share a version).
 - Fails (exit 1) if `max_depth` is not an integer between 1 and 100, if the branch is empty or does not exist, or if no published image is found within `max_depth` commits.
 - No Docker auth is required (public repo); a `gh_token` is recommended only to avoid GitHub commits-API rate limits.

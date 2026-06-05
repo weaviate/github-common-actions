@@ -106,7 +106,20 @@ runs:
           exit 1
         fi
 
-        # Walk newest-first: first commit with a published multi-arch semver tag wins.
+        # Restrict the search to the branch's own version line so a fallback
+        # cannot cross the branch point into an ancestor line (e.g. resolving
+        # stable/v1.36 to a 1.35.x build, which is reachable from the branch and
+        # interleaved in its commit history). For stable/vX.Y the line is X.Y
+        # from the name; otherwise it is the major.minor of the branch tip's
+        # version (captured from the first readable commit). Off-line commits are
+        # skipped (not stopped at), since the lines can interleave.
+        expected_mm=""
+        if [[ "${branch}" =~ ^stable/v([0-9]+\.[0-9]+)$ ]]; then
+          expected_mm="${BASH_REMATCH[1]}"
+        fi
+
+        # Walk newest-first: first commit on the branch's version line with a
+        # published multi-arch semver tag wins.
         docker_tag=""; version=""; sha=""; commit=""; commits_behind=""
         idx=0
         for full in "${shas[@]}"; do
@@ -114,6 +127,12 @@ runs:
           # The version this commit was (or would be) built with.
           if ! ver=$(curl -fsSL --retry 3 --retry-delay 2 --max-time 30 "${RAW}/${full}/openapi-specs/schema.json" | jq -r '.info.version // empty') || [ -z "${ver}" ]; then
             echo "  [${idx}] ${short} : no schema.json/version, skipping"
+            idx=$((idx + 1)); continue
+          fi
+          mm=$(printf '%s' "${ver}" | grep -oE '^[0-9]+\.[0-9]+' || true)
+          if [ -z "${expected_mm}" ]; then expected_mm="${mm}"; fi
+          if [ "${mm}" != "${expected_mm}" ]; then
+            echo "  [${idx}] ${short} -> ${ver} : skipping (version line ${mm:-?} != ${expected_mm})"
             idx=$((idx + 1)); continue
           fi
           candidate="${ver}-${short}"
@@ -129,7 +148,7 @@ runs:
         done
 
         if [ -z "${docker_tag}" ]; then
-          echo "::error::No published multi-arch image found for branch '${branch}' within the last ${MAX_DEPTH} commits in ${REGISTRY}"
+          echo "::error::No published ${expected_mm:+${expected_mm}.x }multi-arch image found for branch '${branch}' within the last ${MAX_DEPTH} commits in ${REGISTRY}"
           exit 1
         fi
 
