@@ -1,0 +1,152 @@
+name: Test Get Branch Docker Tag Action
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - '.github/actions/get-branch-docker-tag/**'
+      - '.github/workflows/get-branch-docker-tag-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  # main resolves to a semver multi-arch tag that is actually pullable.
+  # Assertions are structural (no hardcoded versions) so the test stays green over time.
+  main:
+    name: "branch: main"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve docker tag
+        id: run
+        uses: ./.github/actions/get-branch-docker-tag
+        with:
+          branch: main
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify outputs
+        run: |
+          set -euo pipefail
+          TAG='${{ steps.run.outputs.docker_tag }}'
+          VER='${{ steps.run.outputs.version }}'
+          SHA='${{ steps.run.outputs.sha }}'
+          COMMIT='${{ steps.run.outputs.commit }}'
+          FB='${{ steps.run.outputs.is_fallback }}'
+          CB='${{ steps.run.outputs.commits_behind }}'
+          echo "tag=${TAG} ver=${VER} sha=${SHA} commit=${COMMIT} is_fallback=${FB} commits_behind=${CB}"
+
+          # docker_tag shape: <major.minor.patch>[-prerelease]-<7hex>
+          if ! [[ "${TAG}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?-[0-9a-f]{7}$ ]]; then
+            echo "docker_tag '${TAG}' does not match expected pattern"; exit 1
+          fi
+          # commit is a full 40-char SHA and sha is its 7-char prefix
+          if ! [[ "${COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "commit '${COMMIT}' is not a 40-char SHA"; exit 1
+          fi
+          if [ "${SHA}" != "${COMMIT:0:7}" ]; then
+            echo "sha '${SHA}' != commit prefix '${COMMIT:0:7}'"; exit 1
+          fi
+          # docker_tag == version + "-" + sha
+          if [ "${TAG}" != "${VER}-${SHA}" ]; then
+            echo "docker_tag '${TAG}' != '${VER}-${SHA}'"; exit 1
+          fi
+          # is_fallback is a boolean consistent with commits_behind
+          case "${FB}" in true|false) ;; *) echo "is_fallback not boolean: ${FB}"; exit 1;; esac
+          if ! [[ "${CB}" =~ ^[0-9]+$ ]]; then
+            echo "commits_behind not a non-negative integer: ${CB}"; exit 1
+          fi
+          if [ "${CB}" -gt 0 ] && [ "${FB}" != "true" ]; then
+            echo "commits_behind>0 but is_fallback=${FB}"; exit 1
+          fi
+          if [ "${CB}" -eq 0 ] && [ "${FB}" != "false" ]; then
+            echo "commits_behind=0 but is_fallback=${FB}"; exit 1
+          fi
+          # CORE GUARANTEE: the resolved tag is actually pullable from the registry.
+          CODE=$(curl -s --retry 3 --retry-delay 2 --retry-all-errors --max-time 30 -o /dev/null -w "%{http_code}" \
+            "https://hub.docker.com/v2/repositories/semitechnologies/weaviate/tags/${TAG}" || true)
+          if [ "${CODE}" != "200" ]; then
+            echo "docker_tag '${TAG}' is not available in the registry (HTTP ${CODE})"; exit 1
+          fi
+          echo "OK: ${TAG} is pullable (commits_behind=${CB})"
+
+  # A mature stable branch resolves to its own version line and is pullable.
+  stable:
+    name: "branch: stable/v1.36"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve docker tag
+        id: run
+        uses: ./.github/actions/get-branch-docker-tag
+        with:
+          branch: stable/v1.36
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify outputs
+        run: |
+          set -euo pipefail
+          TAG='${{ steps.run.outputs.docker_tag }}'
+          VER='${{ steps.run.outputs.version }}'
+          SHA='${{ steps.run.outputs.sha }}'
+          echo "tag=${TAG} ver=${VER} sha=${SHA}"
+
+          # stable/v1.36 must resolve to a 1.36.x tag (its own version line).
+          if ! [[ "${TAG}" =~ ^1\.36\.[0-9]+-[0-9a-f]{7}$ ]]; then
+            echo "docker_tag '${TAG}' is not a 1.36.x-<sha> tag"; exit 1
+          fi
+          if ! [[ "${VER}" =~ ^1\.36\.[0-9]+$ ]]; then
+            echo "version '${VER}' is not 1.36.x"; exit 1
+          fi
+          CODE=$(curl -s --retry 3 --retry-delay 2 --retry-all-errors --max-time 30 -o /dev/null -w "%{http_code}" \
+            "https://hub.docker.com/v2/repositories/semitechnologies/weaviate/tags/${TAG}" || true)
+          if [ "${CODE}" != "200" ]; then
+            echo "docker_tag '${TAG}' is not available in the registry (HTTP ${CODE})"; exit 1
+          fi
+          echo "OK: ${TAG} is pullable"
+
+  # A non-existent branch must fail the action (commits API 404).
+  invalid-branch:
+    name: "Invalid branch fails"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve docker tag (invalid branch)
+        id: run
+        continue-on-error: true
+        uses: ./.github/actions/get-branch-docker-tag
+        with:
+          branch: this-branch-does-not-exist-xyz
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify the action failed
+        run: |
+          if [ "${{ steps.run.outcome }}" != "failure" ]; then
+            echo "Expected failure for a non-existent branch, outcome=${{ steps.run.outcome }}"; exit 1
+          fi
+
+  # An invalid max_depth must fail fast (input validation).
+  invalid-max-depth:
+    name: "Invalid max_depth fails"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve docker tag (invalid max_depth)
+        id: run
+        continue-on-error: true
+        uses: ./.github/actions/get-branch-docker-tag
+        with:
+          branch: main
+          max_depth: '0'
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify the action failed
+        run: |
+          if [ "${{ steps.run.outcome }}" != "failure" ]; then
+            echo "Expected failure for max_depth=0, outcome=${{ steps.run.outcome }}"; exit 1
+          fi
