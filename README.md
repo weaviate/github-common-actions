@@ -143,9 +143,10 @@ This action runs using `composite` with the following steps:
 Captures and manages logs from either Kubernetes pods or Docker containers. For Kubernetes, it uses stern to capture logs from pods matching specific labels. For Docker, it uses docker compose logs to capture logs from all services defined in a docker-compose file.
 
 ### Inputs
-- `stern_version` (optional): The version of stern to install when using Kubernetes mode. Default: '1.30.0'
+- `stern_version` (optional): The version of stern to install when using Kubernetes mode. Default: '1.34.0'
 - `action` (optional): The action to perform. Options: 'start' or 'stop'. Default: 'start'
 - `log_file_name` (optional): Name of the file where logs will be captured. Default: 'weaviate_pods.log'
+- `log_dir` (optional): Directory where the log file will be written. The directory is created if it does not exist. Default: '/tmp'
 - `namespace` (optional): Kubernetes namespace to capture logs from (only used when type=kubernetes). Default: 'weaviate'
 - `selector` (optional): Kubernetes label selector for pods (only used when type=kubernetes). Default: 'app=weaviate'
 - `type` (optional): Type of logging to perform. Options: 'kubernetes' or 'docker'. Default: 'kubernetes'
@@ -169,7 +170,7 @@ jobs:
       - name: Start capturing Kubernetes logs
         uses: weaviate/github-common-actions/.github/actions/capture-logs@main
         with:
-          stern_version: '1.30.0'
+          stern_version: '1.34.0'
           action: 'start'
           log_file_name: 'weaviate.log'
           namespace: 'weaviate'
@@ -234,7 +235,7 @@ jobs:
 
 ### Notes
 - The action runs in the background and continues capturing logs until explicitly stopped
-- Logs are written to `/tmp/{log_file_name}`
+- Logs are written to `{log_dir}/{log_file_name}` (defaults to `/tmp/{log_file_name}`)
 - For Kubernetes mode, stern is used to capture logs from multiple pods simultaneously
 - For Docker mode, docker compose logs is used to capture logs from all services
 - Always use the stop action in a cleanup step (with `if: always()`) to ensure logs are properly stopped
