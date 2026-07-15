@@ -76,6 +76,25 @@ jobs:
           pgrep -f "stern --namespace weaviate --selector app=weaviate" > /dev/null
           test -f /tmp/test_stern_k8s_custom.log
 
+      - name: Stop stern before custom log directory test
+        uses: ./.github/actions/capture-logs
+        with:
+          action: 'stop'
+          type: 'kubernetes'
+
+      - name: Test Kubernetes mode with custom log directory
+        uses: ./.github/actions/capture-logs
+        with:
+          action: 'start'
+          log_file_name: 'test_stern_k8s_dir.log'
+          log_dir: '${{ runner.temp }}/weaviate-logs'
+          type: 'kubernetes'
+
+      - name: Verify logs are captured in custom directory
+        run: |
+          pgrep -f "stern --namespace weaviate --selector app=weaviate" > /dev/null
+          test -f "${{ runner.temp }}/weaviate-logs/test_stern_k8s_dir.log"
+
       - name: Archive Kubernetes logs
         uses: actions/upload-artifact@v4
         with:
@@ -83,6 +102,7 @@ jobs:
           path: |
             /tmp/test_stern_k8s.log
             /tmp/test_stern_k8s_custom.log
+            ${{ runner.temp }}/weaviate-logs/test_stern_k8s_dir.log
           if-no-files-found: error
 
       - name: Final cleanup
@@ -142,11 +162,37 @@ jobs:
         run: |
           ! pgrep -f "docker compose.*logs -f" > /dev/null
 
+      - name: Test Docker mode with custom log directory
+        uses: ./.github/actions/capture-logs
+        with:
+          action: 'start'
+          log_file_name: 'test_docker_dir.log'
+          log_dir: '${{ runner.temp }}/docker-logs'
+          type: 'docker'
+          docker_compose_file: 'test-docker-compose.yml'
+
+      - name: Verify Docker logs in custom directory
+        run: |
+          test -f "${{ runner.temp }}/docker-logs/test_docker_dir.log"
+          pgrep -f "docker compose.*logs -f" > /dev/null
+
+      - name: Stop Docker logs from custom directory test
+        uses: ./.github/actions/capture-logs
+        with:
+          action: 'stop'
+          type: 'docker'
+
+      - name: Verify custom directory Docker logs stopped
+        run: |
+          ! pgrep -f "docker compose.*logs -f" > /dev/null
+
       - name: Archive Docker logs
         uses: actions/upload-artifact@v4
         with:
           name: docker-logs
-          path: /tmp/test_docker.log
+          path: |
+            /tmp/test_docker.log
+            ${{ runner.temp }}/docker-logs/test_docker_dir.log
           if-no-files-found: error
 
       - name: Cleanup Docker services

@@ -14,6 +14,10 @@ inputs:
     description: 'Name of the log file to capture'
     required: false
     default: 'weaviate_pods.log'
+  log_dir:
+    description: 'Directory where the log file will be written (created if it does not exist)'
+    required: false
+    default: '/tmp'
   namespace:
     description: 'Kubernetes namespace to capture logs from (only used when type=kubernetes)'
     required: false
@@ -48,21 +52,30 @@ runs:
     - name: Start stern logs for Kubernetes
       if: inputs.action == 'start' && inputs.type == 'kubernetes'
       shell: bash
+      env:
+        LOG_DIR: ${{ inputs.log_dir }}
+        LOG_FILE_NAME: ${{ inputs.log_file_name }}
       run: |
-        stern --namespace ${{ inputs.namespace }} --selector ${{ inputs.selector }} > /tmp/${{ inputs.log_file_name }} &
+        mkdir -p "${LOG_DIR}"
+        stern --namespace ${{ inputs.namespace }} --selector ${{ inputs.selector }} > "${LOG_DIR}/${LOG_FILE_NAME}" &
 
     - name: Start Docker logs
       if: inputs.action == 'start' && inputs.type == 'docker'
       shell: bash
+      env:
+        LOG_DIR: ${{ inputs.log_dir }}
+        LOG_FILE_NAME: ${{ inputs.log_file_name }}
       run: |
         # Verify docker-compose file exists
         if [ ! -f "${{ inputs.docker_compose_file }}" ]; then
           echo "Error: Docker compose file not found at ${{ inputs.docker_compose_file }}"
           exit 1
         fi
-        
+
+        mkdir -p "${LOG_DIR}"
+
         # Start docker compose logs in background
-        docker compose -f ${{ inputs.docker_compose_file }} logs -f > /tmp/${{ inputs.log_file_name }} &
+        docker compose -f ${{ inputs.docker_compose_file }} logs -f > "${LOG_DIR}/${LOG_FILE_NAME}" &
         echo $! > /tmp/docker_logs_pid
 
     - name: Stop Kubernetes logs
