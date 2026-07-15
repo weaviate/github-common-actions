@@ -143,7 +143,7 @@ This action runs using `composite` with the following steps:
 Captures and manages logs from either Kubernetes pods or Docker containers. For Kubernetes, it uses stern to capture logs from pods matching specific labels. For Docker, it uses docker compose logs to capture logs from all services defined in a docker-compose file.
 
 ### Inputs
-- `stern_version` (optional): The version of stern to install when using Kubernetes mode. Default: '1.30.0'
+- `stern_version` (optional): The version of stern to install when using Kubernetes mode. Default: '1.34.0'
 - `action` (optional): The action to perform. Options: 'start' or 'stop'. Default: 'start'
 - `log_file_name` (optional): Name of the file where logs will be captured. Default: 'weaviate_pods.log'
 - `log_dir` (optional): Directory where the log file will be written. The directory is created if it does not exist. Default: '/tmp'
@@ -170,7 +170,7 @@ jobs:
       - name: Start capturing Kubernetes logs
         uses: weaviate/github-common-actions/.github/actions/capture-logs@main
         with:
-          stern_version: '1.30.0'
+          stern_version: '1.34.0'
           action: 'start'
           log_file_name: 'weaviate.log'
           namespace: 'weaviate'
