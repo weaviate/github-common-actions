@@ -44,7 +44,7 @@ runs:
       env:
         STERN_VERSION: ${{ inputs.stern_version }}
       run: |
-        curl -L -o /tmp/stern.tar.gz https://github.com/stern/stern/releases/download/v${STERN_VERSION}/stern_${STERN_VERSION}_linux_amd64.tar.gz
+        curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors --connect-timeout 10 --speed-limit 1024 --speed-time 30 -o /tmp/stern.tar.gz https://github.com/stern/stern/releases/download/v${STERN_VERSION}/stern_${STERN_VERSION}_linux_amd64.tar.gz
         tar -xzf /tmp/stern.tar.gz -C /tmp
         sudo mv /tmp/stern /usr/local/bin/stern
         which stern
